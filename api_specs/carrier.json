@@ -1,0 +1,179 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+      "description": "<p>Freightify's API allows our customer to get information from the Freightify technology platform. This documentation tool provides the API's endpoint specifications, provides examples and allows you to test the API directly in the postman/browser.</p>",
+      "version": "1.0.0",
+      "title": "Carriers"
+    },
+    "servers": [
+      {
+        "url": "https://api.freightify.com",
+        "description": "Production"
+      },
+      {
+        "url": "https://stage-apiservice.freightify.io",
+        "description": "Staging"
+      },
+      {
+        "url": "https://qa-api.freightify.in",
+        "description": "QA"
+      },
+      {
+        "url": "https://dev-api.freightify.in",
+        "description": "Development"
+      }
+    ],
+    "components": {
+      "securitySchemes": {
+        "OAuth2": {
+          "type": "oauth2",
+          "flows": {
+            "password": {
+              "tokenUrl": "/oauth2/token",
+              "refreshUrl": "/oauth2/token",
+              "scopes": {
+                "*": "Access scope"
+              }
+            }
+          }
+        },
+        "AwsApiKey": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "x-api-key"
+        }
+      },
+      "schemas": {
+        "GetCarriersListResponse": {
+          "items": {
+            "type": "object",
+            "properties": {
+              "scacCode": {
+                "type": "string",
+                "example": "MAEU"
+              },
+              "scacName": {
+                "type": "string",
+                "example": "MAERSK"
+              }
+            }
+          },
+          "type": "array"
+        },
+        "GetAirlinesListResponse": {
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "example": "AirIndia"
+              },
+              "iataCode": {
+                "type": "string",
+                "example": "AI"
+              },
+              "prefix": {
+                "type": "string",
+                "example": "098"
+              },
+              "countryCode": {
+                "type": "string",
+                "example": "IN"
+              }
+            }
+          },
+          "type": "array"
+        }
+      }
+    },
+    "paths": {
+      "/v1/carriers": {
+        "get": {
+          "tags": [
+            "Carriers"
+          ],
+          "summary": "Get active carriers list",
+          "description": "This api provides active carriers list",
+          "operationId": "getErpCarriersList",
+          "parameters": [
+            {
+              "name": "isTrackingAvailable",
+              "in": "query",
+              "description": "<p> filters tracking supported carriers <br> true - returns list of carriers who supports tracking <br> false - returns list of carriers who doesn't support tracking <br> null - returns list of all carriers </p>",
+              "required": false,
+              "schema": {
+                "type": "boolean"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Carriers list response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/GetCarriersListResponse"
+                  }
+                }
+              }
+            },
+            "405": {
+              "description": "Validation Errors"
+            }
+          },
+          "security": [
+            {
+              "OAuth2": []
+            },
+            {
+              "AwsApiKey": []
+            }
+          ]
+        }
+      },
+      "/v2/airlines": {
+        "get": {
+          "tags": [
+            "Carriers"
+          ],
+          "summary": "Get airlines list",
+          "description": "This api provides airlines list",
+          "parameters": [
+            {
+              "name": "countryCode",
+              "in": "query",
+              "description": "Country code; cannot exceed 2 characters",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "example": "IN"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Airlines list response",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/GetAirlinesListResponse"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation Errors"
+            }
+          },
+          "security": [
+            {
+              "OAuth2": []
+            },
+            {
+              "AwsApiKey": []
+            }
+          ]
+        }
+      }
+    }
+  }

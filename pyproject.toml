@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "jarvis"
+version = "0.1.0"
+description = "Interactive CrewAI project for summarizing and testing from documents"
+authors = ["Gopinath <gopinath.kumar@freightify.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+# Core CrewAI packages
+crewai = "*"
+crewai-tools = "*"
+# File readers
+python-docx = "*"
+PyPDF2 = "*"
+unstructured = "*"
+pypdf = "*"
+pandas = "*"
+pytest = '*'
+
+# Helpers
+python-dotenv = "*"
+tiktoken = "*"
+
+# Vector DB and embedding
+chromadb = "*"
+openai = "*"
+langchain = "*"
+langchain-openai = '*'
+langchain-chroma = '*'
+langchain-community = '*'
+
+
+[[tool.poetry.packages]]
+include = "doc_analysis"
+from = "src"
