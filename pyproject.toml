@@ -28,6 +28,8 @@ langchain = "*"
 langchain-openai = '*'
 langchain-chroma = '*'
 langchain-community = '*'
+langchain-ollama = "^0.3.4"
+streamlit = "^1.46.1"
 
 
 [[tool.poetry.packages]]
