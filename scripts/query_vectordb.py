@@ -12,12 +12,8 @@ CHROMA_PATH = os.getenv("CHROMA_PATH", "vectorstore_nomic")
 USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() == "true"
 
 def get_embeddings():
-    if USE_OLLAMA:
-        print("🔁 Using Ollama embeddings")
-        return OllamaEmbeddings(model="nomic-embed-text")
-    else:
-        print("🔁 Using OpenAI embeddings")
-        return OpenAIEmbeddings()
+    print("🔁 Using OpenAI embeddings")
+    return OpenAIEmbeddings()
 
 def main():
     embedding_fn = get_embeddings()

@@ -1,12 +1,12 @@
 import os
 import sqlite3
-from langchain.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
+from langchain_chroma import Chroma
 from dotenv import load_dotenv
 
 load_dotenv()  # Load .env with OPENAI_API_KEY
 
-VECTOR_DIR = "vectorstore"
+VECTOR_DIR = "vectorstore_nomic"
 DB_FILE = "agent_logs.db"
 
 def show_recent_logs(db_path=DB_FILE, limit=10):
@@ -31,12 +31,14 @@ def inspect_chroma_chunks(vector_dir=VECTOR_DIR, limit=5):
         )
         chunks = vectordb._collection.get()['documents']
         total_size = 0
-        for i, chunk in enumerate(chunks[:limit]):
-            size = len(chunk)
-            total_size += size
-            print(f"\n[{i+1}] Chunk Size: {size} chars\nContent:\n{chunk}\n" + "-"*50)
-
-        print(f"\n✅ Total Chunks: {len(chunks)}")
+        if chunks:
+            for i, chunk in enumerate(chunks[:limit]):
+                size = len(chunk)
+                total_size += size
+                print(f"\n[{i+1}] Chunk Size: {size} chars\nContent:\n{chunk}\n" + "-"*50)
+            print(f"\n✅ Total Chunks: {len(chunks)}")
+        else:
+            print("\n✅ Total Chunks: 0")
         print(f"🧠 Total Characters in Top {limit} Chunks: {total_size}")
     except Exception as e:
         print(f"⚠️ Failed to load vector store: {e}")

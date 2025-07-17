@@ -126,3 +126,121 @@ LangChain
 ChromaDB
 OpenAI
 Unstructured
+
+---------------------------------------------------------------------------------------------------------
+# Interactive Document QA System (RAG + Feedback Loop)
+
+This system enables intelligent question answering over your custom documents using Retrieval-Augmented Generation (RAG), with an integrated feedback loop for continuous improvement.
+
+---
+
+## 1. 📄 Document Ingestion & Vectorstore Creation
+
+**Purpose:**  
+To make your documents searchable and usable for Q&A.
+
+**How it works:**
+- Upload documents (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`) via the Streamlit app (`chat_rag.py`).
+- The app:
+  - Splits each document into chunks.
+  - Embeds them using **OpenAI embeddings**.
+  - Stores them in a **Chroma vectorstore** (`vectorstore_nomic`).
+- Original files can be deleted after processing — content is now indexed and searchable.
+
+---
+
+## 2. ❓ Question Answering (RAG) via Streamlit
+
+**Purpose:**  
+To answer user questions using both document retrieval and an LLM.
+
+**How it works:**
+- Users input questions in the Streamlit UI.
+- The app:
+  - Retrieves relevant chunks from the **Chroma vectorstore**.
+  - Sends the question and retrieved chunks to an **OpenAI LLM** via **LangChain**.
+- The LLM generates and returns an answer.
+- The response includes the **answer** and the **source documents** used.
+
+---
+
+## 3. 📝 Feedback Collection
+
+**Purpose:**  
+To gather user feedback on answer quality for continuous improvement.
+
+**How it works:**
+- After each answer, users can give a 👍 or 👎 and optionally leave a comment.
+- Feedback is saved in `feedback_log.jsonl` as:
+  - Question
+  - Answer
+  - Sources
+  - Feedback type
+  - Comment (optional)
+
+---
+
+## 4. 🛠️ Automated Feedback Analysis & Pipeline Improvement
+
+**Purpose:**  
+To analyze user feedback for improving system accuracy and reliability.
+
+**How it works:**
+- The `analyze_feedback.py` script:
+  - Parses `feedback_log.jsonl`.
+  - Finds most downvoted questions.
+  - Identifies source documents commonly associated with poor answers.
+  - Collects user comments on downvoted responses.
+  - Flags problematic documents (≥3 downvotes) in `sources_to_review.txt`.
+  - Creates `llm_finetune_data.jsonl` — a dataset for possible LLM fine-tuning.
+
+---
+
+## 5. 🎯 (Optional) LLM Fine-Tuning
+
+**Purpose:**  
+To enhance LLM performance on your specific domain/questions.
+
+**How it works:**
+- The `llm_finetune_data.jsonl` file includes:
+  - Questions
+  - Answers
+  - Context (source chunks)
+  - Feedback metadata
+  - User comments
+- You can use this dataset to fine-tune an LLM, given access to a fine-tuning API or infrastructure.
+
+---
+
+## 🚀 Tech Stack
+
+- **Streamlit** – User interface
+- **LangChain** – Orchestrates retrieval and LLM calls
+- **OpenAI API** – Embeddings and LLM
+- **ChromaDB** – Vector store for document chunks
+- **JSONL Logs** – Feedback storage and analysis
+
+---
+
+## 📂 Project Files Overview
+
+| File | Description |
+|------|-------------|
+| `chat_rag.py` | Streamlit app for document upload and Q&A |
+| `analyze_feedback.py` | Analyzes feedback and prepares data for fine-tuning |
+| `feedback_log.jsonl` | Stores user feedback |
+| `llm_finetune_data.jsonl` | Dataset generated from feedback |
+| `sources_to_review.txt` | Problematic sources flagged for manual review |
+
+---
+
+## ✅ Next Steps
+
+- Add support for multi-model selection (e.g., OpenAI, Ollama).
+- Visualize feedback analytics in the UI.
+- Add export/share options for chat and answers.
+- Integrate admin tools to manage sources and fine-tuning.
+
+---
+
+Built with ❤️ for human-in-the-loop document intelligence.
