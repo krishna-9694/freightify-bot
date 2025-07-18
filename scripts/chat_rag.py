@@ -76,16 +76,10 @@ else:  # Gemini
 
 # When Gemini is selected for chat, still use OpenAI or Ollama for embeddings
 if retrieval_model_source == "Gemini":
-    # Use the same embedding function as for file upload
-    if embedding_model_source == "Ollama":
-        from langchain_community.embeddings import OllamaEmbeddings
-        retrieval_embedding = OllamaEmbeddings(model="nomic-embed-text")
-        retrieval_chroma_path = "vectorstore_ollama"
-    else:
-        from langchain_openai import OpenAIEmbeddings
-        retrieval_embedding = OpenAIEmbeddings()
-        retrieval_chroma_path = "vectorstore_openai"
-    # Set up Chroma with the correct embedding function
+    # Always use OpenAI embeddings for Chroma when on Streamlit Cloud or Gemini is selected
+    from langchain_openai import OpenAIEmbeddings
+    retrieval_embedding = OpenAIEmbeddings()
+    retrieval_chroma_path = "vectorstore_openai"
     vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding)
     retriever = vectordb.as_retriever()
     # ... then use Gemini for the LLM as you do now
