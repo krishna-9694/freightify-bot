@@ -5,7 +5,7 @@ description = "Interactive CrewAI project for summarizing and testing from docum
 authors = ["Gopinath <gopinath.kumar@freightify.com>"]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.10"
 # Core CrewAI packages
 crewai = "*"
 crewai-tools = "*"
