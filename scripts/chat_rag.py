@@ -243,21 +243,28 @@ def fetch_jira_issues(jira_url, email, api_token, jql="ORDER BY created DESC", m
         content = f"Jira Issue {key}\nSummary: {summary}\nDescription: {description}"
         docs.append({"content": content, "metadata": {"source": f"jira:{key}"}})
     return docs
+
+# For a single issue:
+def fetch_single_jira_issue(jira_url, email, api_token, issue_key):
+    headers = {"Accept": "application/json"}
+    auth = (email, api_token)
+    # Only add the path, not the full URL
+    url = f"{jira_url}/rest/api/2/issue/{issue_key}"
+    response = requests.get(url, headers=headers, auth=auth)
+    response.raise_for_status()
+    issue = response.json()
+    key = issue["key"]
+    summary = issue["fields"]["summary"]
+    description = issue["fields"].get("description", "")
+    content = f"Jira Issue {key}\nSummary: {summary}\nDescription: {description}"
+    return [{"content": content, "metadata": {"source": f"jira:{key}"}}]
     
 if jira_fetch and jira_url and jira_email and jira_token:
     with st.spinner("Fetching Jira issues..."):
         try:
             if jira_ticket:
                 # Fetch a single issue
-                issue_url = f"{jira_url}/rest/api/2/issue/{jira_ticket}"
-                response = requests.get(issue_url, auth=(jira_email, jira_token), headers={"Accept": "application/json"})
-                response.raise_for_status()
-                issue = response.json()
-                key = issue["key"]
-                summary = issue["fields"]["summary"]
-                description = issue["fields"].get("description", "")
-                content = f"Jira Issue {key}\nSummary: {summary}\nDescription: {description}"
-                jira_docs = [{"content": content, "metadata": {"source": f"jira:{key}"}}]
+                jira_docs = fetch_single_jira_issue(jira_url, jira_email, jira_token, jira_ticket)
             else:
                 # Fetch multiple issues as before
                 jira_docs = fetch_jira_issues(jira_url, jira_email, jira_token)
