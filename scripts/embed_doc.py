@@ -9,7 +9,7 @@ from langchain_community.document_loaders import (
     TextLoader, PyPDFLoader, UnstructuredWordDocumentLoader,
     UnstructuredExcelLoader, CSVLoader
 )
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import OllamaEmbeddings
 
@@ -22,16 +22,20 @@ load_dotenv()
 DOC_FOLDER = "common"
 MODEL_TYPE = os.getenv("MODEL_TYPE", "openai").lower()
 
-if MODEL_TYPE == "ollama":
-    from langchain_community.embeddings import OllamaEmbeddings
-    EMBEDDING_MODEL = OllamaEmbeddings(model="nomic-embed-text")
-    CHROMA_PATH = "vectorstore_ollama"
-    print("🔁 Using Ollama embeddings")
-else:
+def is_cloud():
+    return os.environ.get("STREAMLIT_CLOUD", "0") == "1" or "streamlit" in os.environ.get("HOME", "")
+
+# Embedding model selection
+if is_cloud() or MODEL_TYPE == "openai" or MODEL_TYPE == "gemini":
     from langchain_openai import OpenAIEmbeddings
     EMBEDDING_MODEL = OpenAIEmbeddings()
     CHROMA_PATH = "vectorstore_openai"
     print("🔁 Using OpenAI embeddings")
+else:
+    from langchain_community.embeddings import OllamaEmbeddings
+    EMBEDDING_MODEL = OllamaEmbeddings(model="nomic-embed-text")
+    CHROMA_PATH = "vectorstore_ollama"
+    print("🔁 Using Ollama embeddings")
 
 def load_all_documents(folder_path):
     loaders = []
@@ -68,10 +72,9 @@ def split_documents(documents):
     return splitter.split_documents(documents)
 
 def embed_and_store(docs):
-    vectordb = Chroma.from_documents(
+    vectordb = FAISS.from_documents(
         documents=docs,
         embedding=EMBEDDING_MODEL,
-        persist_directory=CHROMA_PATH
     )
     print(f"✅ Vector store created at `{CHROMA_PATH}` with {len(docs)} chunks.")
 

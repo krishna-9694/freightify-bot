@@ -1,22 +1,21 @@
-import sys
 import os
-sys.modules["sqlite3"] = __import__("pysqlite3")
 import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image
 import uuid
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import (
     TextLoader, PyPDFLoader, UnstructuredWordDocumentLoader, UnstructuredExcelLoader, CSVLoader
 )
 import requests
-
-# --- Gemini imports ---
 import google.generativeai as genai
 
 def get_gemini_api_key():
     return os.getenv("GEMINI_API_KEY")
+
+def is_cloud():
+    return os.environ.get("STREAMLIT_CLOUD", "0") == "1" or "streamlit" in os.environ.get("HOME", "")
 
 # --- Load environment variables ---
 load_dotenv()
@@ -32,87 +31,30 @@ with col1:
 
 # --- Sidebar Model Selectors ---
 st.sidebar.title("🔧 Configuration")
-embedding_model_source = st.sidebar.selectbox("Choose Model for Embedding", ["Ollama", "OpenAI"])
-retrieval_model_source = st.sidebar.selectbox("Choose Model for Retrieval/Chat", ["Ollama", "OpenAI", "Gemini"])
+embedding_model_source = st.sidebar.selectbox("Choose Model for Embedding", ["Ollama", "OpenAI"] if not is_cloud() else ["OpenAI"])
+retrieval_model_source = st.sidebar.selectbox("Choose Model for Retrieval/Chat", ["Ollama", "OpenAI", "Gemini"] if not is_cloud() else ["OpenAI", "Gemini"])
 
-# --- Embedding Model and Vectorstore for Upload ---
-if embedding_model_source == "Ollama":
-    from langchain_community.embeddings import OllamaEmbeddings
-    embedding_model = OllamaEmbeddings(model="nomic-embed-text")
-    embedding_chroma_path = "vectorstore_ollama"
-    embedding_label = "Ollama"
-else:
+# --- Embedding Model Selection ---
+if is_cloud() or embedding_model_source == "OpenAI" or retrieval_model_source == "Gemini":
     from langchain_openai import OpenAIEmbeddings
     embedding_model = OpenAIEmbeddings()
-    embedding_chroma_path = "vectorstore_openai"
     embedding_label = "OpenAI"
-
-# --- Retrieval Model and Vectorstore for Chat ---
-if retrieval_model_source == "Ollama":
+    faiss_index_path = "faiss_index_openai"
+else:
     from langchain_community.embeddings import OllamaEmbeddings
+    embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+    embedding_label = "Ollama"
+    faiss_index_path = "faiss_index_ollama"
+
+# --- LLM Selection ---
+if retrieval_model_source == "Ollama" and not is_cloud():
     from langchain_community.llms import Ollama
-    retrieval_embedding = OllamaEmbeddings(model="nomic-embed-text")
     llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]))
-    retrieval_chroma_path = "vectorstore_ollama"
-    use_gemini = False
 elif retrieval_model_source == "OpenAI":
-    from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-    retrieval_embedding = OpenAIEmbeddings()
+    from langchain_openai import ChatOpenAI
     llm = ChatOpenAI(model=st.sidebar.selectbox("OpenAI Model", ["gpt-4", "gpt-3.5-turbo"]))
-    retrieval_chroma_path = "vectorstore_openai"
-    use_gemini = False
 else:  # Gemini
-    retrieval_embedding = None  # Not used for Gemini LLM
-    llm = None  # Not used for Gemini LLM
-    retrieval_chroma_path = "vectorstore_openai"  # Use OpenAI embeddings for RAG
-    use_gemini = True
-    gemini_api_key = get_gemini_api_key()
-    if not gemini_api_key:
-        st.error("GEMINI_API_KEY not set in Streamlit secrets or environment.")
-    else:
-        os.environ["GEMINI_API_KEY"] = gemini_api_key
-        # This line was causing the error, so it's commented out.
-        # model = genai.GenerativeModel('gemini-pro') 
-
-# When Gemini is selected for chat, still use OpenAI or Ollama for embeddings
-if retrieval_model_source == "Gemini":
-    # Always use OpenAI embeddings for Chroma when on Streamlit Cloud or Gemini is selected
-    from langchain_openai import OpenAIEmbeddings
-    retrieval_embedding = OpenAIEmbeddings()
-    retrieval_chroma_path = "vectorstore_openai"
-    vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding)
-    retriever = vectordb.as_retriever()
-    # ... then use Gemini for the LLM as you do now
-
-vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding)
-retriever = vectordb.as_retriever()
-
-# --- Prompt Template ---
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-
-template = """
-You are Freightify Bot, an intelligent assistant for logistics and freight teams. 
-Answer questions truthfully using ONLY the context below.
-
-Context:
-{context}
-
-Question:
-{question}
-
-Helpful Answer:
-"""
-prompt = PromptTemplate(input_variables=["context", "question"], template=template)
-
-if not use_gemini:
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        chain_type="stuff",
-        return_source_documents=True,
-        chain_type_kwargs={"prompt": prompt},
-    )
+    llm = None  # Use Gemini HTTP API as below
 
 # --- File Upload ---
 st.subheader(f"Upload a document to index with {embedding_label} embeddings:")
@@ -138,26 +80,75 @@ if uploaded_file:
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     chunks = splitter.split_documents(docs)
     # Add to the selected embedding model's vectorstore
-    upload_vectordb = Chroma(persist_directory=embedding_chroma_path, embedding_function=embedding_model)
-    upload_vectordb.add_documents(chunks)
+    if os.path.exists(faiss_index_path):
+        vectordb = FAISS.load_local(
+            faiss_index_path,
+            embeddings=embedding_model,
+            allow_dangerous_deserialization=True
+        )
+        vectordb.add_documents(chunks)
+    else:
+        vectordb = FAISS.from_documents(chunks, embedding_model)
+    vectordb.save_local(faiss_index_path)
     st.success(f"Document uploaded and indexed with {embedding_label} embeddings! You can now ask questions about it.")
+
+# --- Retrieval Embedding Selection ---
+if retrieval_model_source == "Gemini":
+    from langchain_openai import OpenAIEmbeddings
+    retrieval_embedding = OpenAIEmbeddings()
+    retrieval_faiss_index_path = "faiss_index_openai"
+else:
+    retrieval_embedding = embedding_model
+    retrieval_faiss_index_path = faiss_index_path
+
+# --- Load FAISS for retrieval ---
+if os.path.exists(retrieval_faiss_index_path):
+    vectordb = FAISS.load_local(
+        retrieval_faiss_index_path,
+        embeddings=retrieval_embedding,
+        allow_dangerous_deserialization=True
+    )
+    retriever = vectordb.as_retriever()
+else:
+    vectordb = None
+    retriever = None
+
+# --- Prompt Template ---
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+
+template = """
+You are Freightify Bot, an intelligent assistant for logistics and freight teams. 
+Answer questions truthfully using ONLY the context below.
+
+Context:
+{context}
+
+Question:
+{question}
+
+Helpful Answer:
+"""
+prompt = PromptTemplate(input_variables=["context", "question"], template=template)
+
+if retriever is not None and not is_cloud() and retrieval_model_source != "Gemini":
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        chain_type="stuff",
+        return_source_documents=True,
+        chain_type_kwargs={"prompt": prompt},
+    )
+else:
+    qa_chain = None
 
 # --- Chat UI ---
 st.subheader("💬 Ask your question")
 query = st.text_input("Type your question here:")
 
-if query:
+if query and retriever:
     with st.spinner("🤔 Thinking..."):
-        if not use_gemini:
-            result = qa_chain.invoke({"query": query})
-            st.markdown("### 📌 Answer:")
-            st.write(result["result"])
-            with st.expander("🗂 Source Documents"):
-                for doc in result["source_documents"]:
-                    st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
-                    st.write(doc.page_content[:500] + "...")
-        else:
-            # Gemini RAG: retrieve context, then call Gemini
+        if retrieval_model_source == "Gemini":
             docs = retriever.get_relevant_documents(query)
             context = "\n\n".join([doc.page_content for doc in docs])
             gemini_prompt = f"""
@@ -189,6 +180,16 @@ Helpful Answer:
                 for doc in docs:
                     st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
                     st.write(doc.page_content[:500] + "...")
+        elif qa_chain is not None:
+            result = qa_chain.invoke({"query": query})
+            st.markdown("### 📌 Answer:")
+            st.write(result["result"])
+            with st.expander("🗂 Source Documents"):
+                for doc in result["source_documents"]:
+                    st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                    st.write(doc.page_content[:500] + "...")
+        else:
+            st.warning("No vectorstore found. Please upload documents first.")
 
         # --- Feedback ---
         feedback_col1, feedback_col2 = st.columns([1, 1])
@@ -208,8 +209,8 @@ Helpful Answer:
                 import json
                 feedback_data = {
                     "query": query,
-                    "response": result["result"] if not use_gemini else answer,
-                    "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]] if not use_gemini else [doc.metadata.get('source', '') for doc in docs],
+                    "response": result["result"] if retrieval_model_source != "Gemini" else answer,
+                    "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]] if retrieval_model_source != "Gemini" else [doc.metadata.get('source', '') for doc in docs],
                     "feedback": feedback_type,
                     "comment": feedback_comment or "",
                     "retrieval_model": retrieval_model_source,
@@ -265,9 +266,9 @@ if jira_fetch and jira_url and jira_email and jira_token:
             docs = [Document(page_content=d["content"], metadata=d["metadata"]) for d in jira_docs]
             splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=50)
             chunks = splitter.split_documents(docs)
-            upload_vectordb = Chroma(persist_directory=embedding_chroma_path, embedding_function=embedding_model)
+            upload_vectordb = FAISS.from_documents(chunks, embedding_model)
+            upload_vectordb.save_local(faiss_index_path)
             if chunks:
-                upload_vectordb.add_documents(chunks)
                 st.success(f"Fetched and indexed {len(jira_docs)} Jira issues!")
             else:
                 st.warning("No content to index from Jira issues (issues may be empty or too short).")
