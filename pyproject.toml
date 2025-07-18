@@ -31,8 +31,9 @@ langchain-community = '*'
 langchain-ollama = "^0.3.4"
 streamlit = "^1.46.1"
 
-pysqlite3-binary = "*"
+
 google-generativeai = "*"
+faiss-cpu = "^1.11.0.post1"
 
 [[tool.poetry.packages]]
 include = "doc_analysis"
