@@ -12,6 +12,12 @@ from langchain_community.document_loaders import (
 )
 import requests
 
+# --- Gemini imports ---
+import google.generativeai as genai
+
+def get_gemini_api_key():
+    return st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+
 # --- Load environment variables ---
 load_dotenv()
 
@@ -27,7 +33,7 @@ with col1:
 # --- Sidebar Model Selectors ---
 st.sidebar.title("🔧 Configuration")
 embedding_model_source = st.sidebar.selectbox("Choose Model for Embedding", ["Ollama", "OpenAI"])
-retrieval_model_source = st.sidebar.selectbox("Choose Model for Retrieval/Chat", ["Ollama", "OpenAI"])
+retrieval_model_source = st.sidebar.selectbox("Choose Model for Retrieval/Chat", ["Ollama", "OpenAI", "Gemini"])
 
 # --- Embedding Model and Vectorstore for Upload ---
 if embedding_model_source == "Ollama":
@@ -48,14 +54,27 @@ if retrieval_model_source == "Ollama":
     retrieval_embedding = OllamaEmbeddings(model="nomic-embed-text")
     llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]))
     retrieval_chroma_path = "vectorstore_ollama"
-else:
+    use_gemini = False
+elif retrieval_model_source == "OpenAI":
     from langchain_openai import OpenAIEmbeddings, ChatOpenAI
     retrieval_embedding = OpenAIEmbeddings()
     llm = ChatOpenAI(model=st.sidebar.selectbox("OpenAI Model", ["gpt-4", "gpt-3.5-turbo"]))
     retrieval_chroma_path = "vectorstore_openai"
+    use_gemini = False
+else:  # Gemini
+    retrieval_embedding = None  # Not used for Gemini LLM
+    llm = None  # Not used for Gemini LLM
+    retrieval_chroma_path = "vectorstore_openai"  # Use OpenAI embeddings for RAG
+    use_gemini = True
+    gemini_api_key = get_gemini_api_key()
+    if not gemini_api_key:
+        st.error("GEMINI_API_KEY not set in Streamlit secrets or environment.")
+    else:
+        genai.configure(api_key=gemini_api_key)
+        gemini_model = genai.GenerativeModel("gemini-pro")
 
-vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding)
-retriever = vectordb.as_retriever()
+vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding) if not use_gemini else Chroma(persist_directory="vectorstore_openai", embedding_function=None)
+retriever = vectordb.as_retriever() if not use_gemini else vectordb.as_retriever()
 
 # --- Prompt Template ---
 from langchain.prompts import PromptTemplate
@@ -75,13 +94,14 @@ Helpful Answer:
 """
 prompt = PromptTemplate(input_variables=["context", "question"], template=template)
 
-qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    retriever=retriever,
-    chain_type="stuff",
-    return_source_documents=True,
-    chain_type_kwargs={"prompt": prompt},
-)
+if not use_gemini:
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        chain_type="stuff",
+        return_source_documents=True,
+        chain_type_kwargs={"prompt": prompt},
+    )
 
 # --- File Upload ---
 st.subheader(f"Upload a document to index with {embedding_label} embeddings:")
@@ -117,13 +137,37 @@ query = st.text_input("Type your question here:")
 
 if query:
     with st.spinner("🤔 Thinking..."):
-        result = qa_chain.invoke({"query": query})
-        st.markdown("### 📌 Answer:")
-        st.write(result["result"])
-        with st.expander("🗂 Source Documents"):
-            for doc in result["source_documents"]:
-                st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
-                st.write(doc.page_content[:500] + "...")
+        if not use_gemini:
+            result = qa_chain.invoke({"query": query})
+            st.markdown("### 📌 Answer:")
+            st.write(result["result"])
+            with st.expander("🗂 Source Documents"):
+                for doc in result["source_documents"]:
+                    st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                    st.write(doc.page_content[:500] + "...")
+        else:
+            # Gemini RAG: retrieve context, then call Gemini
+            docs = retriever.get_relevant_documents(query)
+            context = "\n\n".join([doc.page_content for doc in docs])
+            gemini_prompt = f"""
+You are Freightify Bot, an intelligent assistant for logistics and freight teams. 
+Answer questions truthfully using ONLY the context below.
+
+Context:
+{context}
+
+Question:
+{query}
+
+Helpful Answer:
+"""
+            response = gemini_model.generate_content(gemini_prompt)
+            st.markdown("### 📌 Answer:")
+            st.write(response.text)
+            with st.expander("🗂 Source Documents"):
+                for doc in docs:
+                    st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                    st.write(doc.page_content[:500] + "...")
 
         # --- Feedback ---
         feedback_col1, feedback_col2 = st.columns([1, 1])
@@ -143,8 +187,8 @@ if query:
                 import json
                 feedback_data = {
                     "query": query,
-                    "response": result['result'],
-                    "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]],
+                    "response": result["result"] if not use_gemini else response.text,
+                    "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]] if not use_gemini else [doc.metadata.get('source', '') for doc in docs],
                     "feedback": feedback_type,
                     "comment": feedback_comment or "",
                     "retrieval_model": retrieval_model_source,
