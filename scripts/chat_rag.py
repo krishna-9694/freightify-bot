@@ -1,6 +1,6 @@
 import sys
 import os
-sys.modules["sqlite3"] = __import__("pysqlite3")
+# sys.modules["sqlite3"] = __import__("pysqlite3")
 import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image
@@ -16,7 +16,7 @@ import requests
 import google.generativeai as genai
 
 def get_gemini_api_key():
-    return st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    return os.getenv("GEMINI_API_KEY")
 
 # --- Load environment variables ---
 load_dotenv()
@@ -70,7 +70,7 @@ else:  # Gemini
     if not gemini_api_key:
         st.error("GEMINI_API_KEY not set in Streamlit secrets or environment.")
     else:
-        os.environ["GOOGLE_API_KEY"] = gemini_api_key
+        os.environ["GEMINI_API_KEY"] = gemini_api_key
         # This line was causing the error, so it's commented out.
         # model = genai.GenerativeModel('gemini-pro') 
 
@@ -90,8 +90,8 @@ if retrieval_model_source == "Gemini":
     retriever = vectordb.as_retriever()
     # ... then use Gemini for the LLM as you do now
 
-vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding) if not use_gemini else Chroma(persist_directory="vectorstore_openai", embedding_function=None)
-retriever = vectordb.as_retriever() if not use_gemini else vectordb.as_retriever()
+vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding)
+retriever = vectordb.as_retriever()
 
 # --- Prompt Template ---
 from langchain.prompts import PromptTemplate
@@ -178,14 +178,17 @@ Question:
 
 Helpful Answer:
 """
-            api_key = os.environ["GOOGLE_API_KEY"]
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+            api_key = os.environ["GEMINI_API_KEY"]
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
             data = {
                 "contents": [{"parts": [{"text": gemini_prompt}]}]
             }
             response = requests.post(url, json=data)
             result = response.json()
-            answer = result["candidates"][0]["content"]["parts"][0]["text"]
+            if "candidates" in result:
+                answer = result["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                answer = result.get("error", {}).get("message", "Unknown error from Gemini API")
             st.markdown("### 📌 Answer:")
             st.write(answer)
             with st.expander("🗂 Source Documents"):
