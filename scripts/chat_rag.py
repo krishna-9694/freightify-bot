@@ -1,6 +1,6 @@
 import sys
 import os
-# sys.modules["sqlite3"] = __import__("pysqlite3")
+sys.modules["sqlite3"] = __import__("pysqlite3")
 import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image
