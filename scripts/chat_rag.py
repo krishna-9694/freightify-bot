@@ -70,8 +70,9 @@ else:  # Gemini
     if not gemini_api_key:
         st.error("GEMINI_API_KEY not set in Streamlit secrets or environment.")
     else:
-        genai.configure(api_key=gemini_api_key)
-        gemini_model = genai.GenerativeModel("gemini-pro")
+        os.environ["GOOGLE_API_KEY"] = gemini_api_key
+        # This line was causing the error, so it's commented out.
+        # model = genai.GenerativeModel('gemini-pro') 
 
 vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding) if not use_gemini else Chroma(persist_directory="vectorstore_openai", embedding_function=None)
 retriever = vectordb.as_retriever() if not use_gemini else vectordb.as_retriever()
@@ -161,9 +162,16 @@ Question:
 
 Helpful Answer:
 """
-            response = gemini_model.generate_content(gemini_prompt)
+            api_key = os.environ["GOOGLE_API_KEY"]
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+            data = {
+                "contents": [{"parts": [{"text": gemini_prompt}]}]
+            }
+            response = requests.post(url, json=data)
+            result = response.json()
+            answer = result["candidates"][0]["content"]["parts"][0]["text"]
             st.markdown("### 📌 Answer:")
-            st.write(response.text)
+            st.write(answer)
             with st.expander("🗂 Source Documents"):
                 for doc in docs:
                     st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
@@ -187,7 +195,7 @@ Helpful Answer:
                 import json
                 feedback_data = {
                     "query": query,
-                    "response": result["result"] if not use_gemini else response.text,
+                    "response": result["result"] if not use_gemini else answer,
                     "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]] if not use_gemini else [doc.metadata.get('source', '') for doc in docs],
                     "feedback": feedback_type,
                     "comment": feedback_comment or "",
