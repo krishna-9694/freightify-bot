@@ -1,80 +1,95 @@
 import os
-import json
 import streamlit as st
+from dotenv import load_dotenv
 from PIL import Image
-
-from langchain_openai import OpenAIEmbeddings
-from langchain_openai import ChatOpenAI
-from langchain.chains import RetrievalQA
-from langchain.chains.qa_with_sources import load_qa_with_sources_chain
-from langchain_chroma import Chroma
-from langchain.vectorstores.base import VectorStoreRetriever
-from langchain.prompts import PromptTemplate
-from langchain_community.document_loaders import TextLoader, PyPDFLoader, UnstructuredWordDocumentLoader, CSVLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 import uuid
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_community.document_loaders import (
+    TextLoader, PyPDFLoader, UnstructuredWordDocumentLoader, UnstructuredExcelLoader, CSVLoader
+)
+import requests
 
-from collections import Counter, defaultdict
+# --- Load environment variables ---
+load_dotenv()
 
-# --- Setup ---
+# --- UI Setup ---
 st.set_page_config(page_title="Freightify Bot", layout="wide")
-
-# --- Logo and Title ---
 col1, col2 = st.columns([4, 1])
 with col2:
-    logo_path = "scripts/logo.jpg"  # Adjust as needed
-    try:
-        image = Image.open(logo_path)
-        st.image(image, caption="Trade Simplified!", use_container_width=True)
-    except Exception as e:
-        st.warning("⚠️ Could not load logo image.")
-
+    logo = Image.open("scripts/logo.jpg")
+    st.image(logo, caption=None, use_container_width=True)
 with col1:
-    st.title("📦 Freightify Bot")
-    st.markdown("Your AI assistant for document Q&A, powered by OpenAI and ChromaDB.")
+    st.title("🚢 Freightify Bot")
 
-# --- Load Embeddings and Vector Store ---
-CHROMA_PATH = "vectorstore_nomic"
-embedding = OpenAIEmbeddings()
-vectordb = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding)
+# --- Sidebar Model Selectors ---
+st.sidebar.title("🔧 Configuration")
+embedding_model_source = st.sidebar.selectbox("Choose Model for Embedding", ["Ollama", "OpenAI"])
+retrieval_model_source = st.sidebar.selectbox("Choose Model for Retrieval/Chat", ["Ollama", "OpenAI"])
 
-retriever: VectorStoreRetriever = vectordb.as_retriever(search_kwargs={"k": 3})
+# --- Embedding Model and Vectorstore for Upload ---
+if embedding_model_source == "Ollama":
+    from langchain_community.embeddings import OllamaEmbeddings
+    embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+    embedding_chroma_path = "vectorstore_ollama"
+    embedding_label = "Ollama"
+else:
+    from langchain_openai import OpenAIEmbeddings
+    embedding_model = OpenAIEmbeddings()
+    embedding_chroma_path = "vectorstore_openai"
+    embedding_label = "OpenAI"
 
-# --- Custom Prompt Template ---
-prompt_template = """Use the following context to answer the question.
-If you don't know the answer, just say you don't know. Do not try to make up an answer.
+# --- Retrieval Model and Vectorstore for Chat ---
+if retrieval_model_source == "Ollama":
+    from langchain_community.embeddings import OllamaEmbeddings
+    from langchain_community.llms import Ollama
+    retrieval_embedding = OllamaEmbeddings(model="nomic-embed-text")
+    llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]))
+    retrieval_chroma_path = "vectorstore_ollama"
+else:
+    from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+    retrieval_embedding = OpenAIEmbeddings()
+    llm = ChatOpenAI(model=st.sidebar.selectbox("OpenAI Model", ["gpt-4", "gpt-3.5-turbo"]))
+    retrieval_chroma_path = "vectorstore_openai"
+
+vectordb = Chroma(persist_directory=retrieval_chroma_path, embedding_function=retrieval_embedding)
+retriever = vectordb.as_retriever()
+
+# --- Prompt Template ---
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+
+template = """
+You are Freightify Bot, an intelligent assistant for logistics and freight teams. 
+Answer questions truthfully using ONLY the context below.
 
 Context:
-{summaries}
+{context}
 
-Question: {question}
-Answer:"""
+Question:
+{question}
 
-prompt = PromptTemplate(
-    template=prompt_template,
-    input_variables=["summaries", "question"]
+Helpful Answer:
+"""
+prompt = PromptTemplate(input_variables=["context", "question"], template=template)
+
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    chain_type="stuff",
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": prompt},
 )
 
-# --- LLM Setup ---
-llm = ChatOpenAI(model="gpt-4", temperature=0)
-
-qa_chain = load_qa_with_sources_chain(llm, chain_type="stuff", prompt=prompt)
-qa_pipeline = RetrievalQA(combine_documents_chain=qa_chain, retriever=retriever, return_source_documents=True)
-
-# --- UI Interaction ---
-st.subheader("💬 Ask your question")
-query = st.text_input("Type your question here:")
-
 # --- File Upload ---
-uploaded_file = st.file_uploader("Upload a document", type=["pdf", "docx", "txt", "md", "csv"])
+st.subheader(f"Upload a document to index with {embedding_label} embeddings:")
+uploaded_file = st.file_uploader("Upload a document", type=["pdf", "docx", "txt", "md", "csv", "xlsx"])
 if uploaded_file:
-    # Save file with a unique name
     unique_name = f"{uuid.uuid4()}_{uploaded_file.name}"
     temp_path = os.path.join("uploads", unique_name)
     os.makedirs("uploads", exist_ok=True)
     with open(temp_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
-    # Load document
     ext = uploaded_file.name.split(".")[-1].lower()
     if ext == "pdf":
         loader = PyPDFLoader(temp_path)
@@ -82,35 +97,38 @@ if uploaded_file:
         loader = UnstructuredWordDocumentLoader(temp_path)
     elif ext == "csv":
         loader = CSVLoader(temp_path)
+    elif ext == "xlsx":
+        loader = UnstructuredExcelLoader(temp_path)
     else:
         loader = TextLoader(temp_path)
     docs = loader.load()
-    # Split and embed
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     chunks = splitter.split_documents(docs)
-    vectordb.add_documents(chunks)
-    st.success("Document uploaded and indexed! You can now ask questions about it.")
-    # Optionally, delete the file after processing
-    # os.remove(temp_path) # This line is commented out to keep uploaded files
+    # Add to the selected embedding model's vectorstore
+    upload_vectordb = Chroma(persist_directory=embedding_chroma_path, embedding_function=embedding_model)
+    upload_vectordb.add_documents(chunks)
+    st.success(f"Document uploaded and indexed with {embedding_label} embeddings! You can now ask questions about it.")
+
+# --- Chat UI ---
+st.subheader("💬 Ask your question")
+query = st.text_input("Type your question here:")
 
 if query:
-    with st.spinner("💡 Thinking..."):
-        result = qa_pipeline.invoke({"query": query})
-        st.markdown(f"### 🤖 Answer\n{result['result']}")
-
-        # --- Sources ---
-        with st.expander("📚 Source Documents"):
+    with st.spinner("🤔 Thinking..."):
+        result = qa_chain.invoke({"query": query})
+        st.markdown("### 📌 Answer:")
+        st.write(result["result"])
+        with st.expander("🗂 Source Documents"):
             for doc in result["source_documents"]:
-                st.markdown(f"- **Source:** `{doc.metadata.get('source', 'unknown')}`")
-                st.text(doc.page_content[:1000])  # Preview
+                st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                st.write(doc.page_content[:500] + "...")
 
         # --- Feedback ---
         feedback_col1, feedback_col2 = st.columns([1, 1])
         with feedback_col1:
-            thumbs_up = st.button("👍 Helpful", key="thumbs_up")
+            thumbs_up = st.button("👍 Helpful", key=f"thumbs_up_{query}")
         with feedback_col2:
-            thumbs_down = st.button("👎 Not Helpful", key="thumbs_down")
-
+            thumbs_down = st.button("👎 Not Helpful", key=f"thumbs_down_{query}")
         feedback_given = thumbs_up or thumbs_down
         feedback_comment = None
         if feedback_given:
@@ -120,14 +138,73 @@ if query:
                 key=f"feedback_comment_{feedback_type}_{query}"
             )
             if st.button("Submit Feedback", key=f"submit_feedback_{feedback_type}_{query}"):
+                import json
                 feedback_data = {
                     "query": query,
                     "response": result['result'],
                     "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]],
                     "feedback": feedback_type,
-                    "comment": feedback_comment or ""
+                    "comment": feedback_comment or "",
+                    "retrieval_model": retrieval_model_source,
+                    "embedding_model": embedding_model_source
                 }
                 with open("feedback_log.jsonl", "a") as f:
                     f.write(json.dumps(feedback_data) + "\n")
                 st.success("✅ Feedback recorded! Thank you for your input.")
+
+st.sidebar.markdown("### Jira Integration")
+jira_url = st.sidebar.text_input("Jira Base URL (e.g. https://yourcompany.atlassian.net)")
+jira_email = st.sidebar.text_input("Jira Email")
+jira_token = st.sidebar.text_input("Jira API Token", type="password")
+jira_ticket = st.sidebar.text_input("Jira Ticket Number")
+jira_fetch = st.sidebar.button("Fetch Jira Issues")
+
+
+def fetch_jira_issues(jira_url, email, api_token, jql="ORDER BY created DESC", max_results=10):
+    headers = {"Accept": "application/json"}
+    auth = (email, api_token)
+    params = {"jql": jql, "maxResults": max_results}
+    response = requests.get(f"{jira_url}/rest/api/2/search", headers=headers, params=params, auth=auth)
+    response.raise_for_status()
+    data = response.json()
+    docs = []
+    for issue in data["issues"]:
+        key = issue["key"]
+        summary = issue["fields"]["summary"]
+        description = issue["fields"].get("description", "")
+        content = f"Jira Issue {key}\nSummary: {summary}\nDescription: {description}"
+        docs.append({"content": content, "metadata": {"source": f"jira:{key}"}})
+    return docs
+    
+if jira_fetch and jira_url and jira_email and jira_token:
+    with st.spinner("Fetching Jira issues..."):
+        try:
+            if jira_ticket:
+                # Fetch a single issue
+                issue_url = f"{jira_url}/rest/api/2/issue/{jira_ticket}"
+                response = requests.get(issue_url, auth=(jira_email, jira_token), headers={"Accept": "application/json"})
+                response.raise_for_status()
+                issue = response.json()
+                key = issue["key"]
+                summary = issue["fields"]["summary"]
+                description = issue["fields"].get("description", "")
+                content = f"Jira Issue {key}\nSummary: {summary}\nDescription: {description}"
+                jira_docs = [{"content": content, "metadata": {"source": f"jira:{key}"}}]
+            else:
+                # Fetch multiple issues as before
+                jira_docs = fetch_jira_issues(jira_url, jira_email, jira_token)
+            # Convert to LangChain Document objects
+            from langchain.schema import Document
+            docs = [Document(page_content=d["content"], metadata=d["metadata"]) for d in jira_docs]
+            splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=50)
+            chunks = splitter.split_documents(docs)
+            upload_vectordb = Chroma(persist_directory=embedding_chroma_path, embedding_function=embedding_model)
+            if chunks:
+                upload_vectordb.add_documents(chunks)
+                st.success(f"Fetched and indexed {len(jira_docs)} Jira issues!")
+            else:
+                st.warning("No content to index from Jira issues (issues may be empty or too short).")
+        except Exception as e:
+            st.error(f"Failed to fetch Jira issues: {e}")
+
 
