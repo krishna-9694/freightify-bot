@@ -712,7 +712,7 @@ if jira_fetch and jira_url and jira_email and jira_token:
             upload_vectordb.save_local(faiss_index_path)
             
             # Initialize retriever immediately after indexing
-            global retriever
+            # Update the existing retriever variable
             retriever = upload_vectordb.as_retriever(search_kwargs={"k": 4})
             
             if chunks:
