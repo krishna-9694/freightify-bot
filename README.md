@@ -53,35 +53,36 @@ doc_analysis_crew/
 yaml
 ---
 ## 🚀 Quick Start
+
 ### 1️⃣ Install dependencies
 ```bash
 poetry install
+```
 
-
-2️⃣ Set your OpenAI API Key
+### 2️⃣ Set your OpenAI API Key
 Create a file called .env in the root:
+```bash
+cp sampleenv .env
+# Edit .env and add your OPENAI_API_KEY
+```
 
-3️⃣ Add your documents
-Place .txt, .md, .pdf, .docx, .csv, .xlsx files in the common/ folder.
-mkdir common
-# Copy in your documents
+### 3️⃣ Add your documents
+Place .txt, .md, .pdf, .docx, .csv, .xlsx files in the common/ folder:
+```bash
+mkdir -p common
+# Copy your documents to common/
+```
 
-4️⃣ Run the document embedding script
-This will:
-** Load & chunk your files
-** Embed the chunks using OpenAI
-** Store them in a local Chroma vector store
+### 4️⃣ Run the document embedding script
+```bash
+poetry run python scripts/embed_doc.py
+```
+You should see: ✅ Vector store created with X chunks.
 
-## Run this command
-
-poetry run python scripts/embed_docs.py
-----
-You should see the following:
-✅ Vector store created with 68 chunks.
-----
-
-5️⃣ Run the main agent app
+### 5️⃣ Run the main agent app
+```bash
 poetry run python src/doc_analysis/main.py
+```
 
 # Choose which agent to run:
 Choose an agent to run:

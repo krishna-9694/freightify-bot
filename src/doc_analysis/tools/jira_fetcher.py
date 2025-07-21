@@ -22,8 +22,11 @@ def fetch_and_embed_jira_issue(issue_id: str) -> str:
     if not all([base_url, email, api_token]):
         return "❌ Missing Jira credentials in environment."
 
+    model_type = os.getenv("MODEL_TYPE", "openai").lower()
+    vectorstore_path = f"vectorstore_{model_type}"
+    
     vectordb = Chroma(
-        persist_directory="vectorstore",
+        persist_directory=vectorstore_path,
         embedding_function=OpenAIEmbeddings()
     )
 

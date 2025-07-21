@@ -11,6 +11,10 @@ load_dotenv()
 @tool("Advanced API Testing Tool")
 def test_apis_from_spec(api_file_path: str = "api_specs/carrier.json", environment: str = "staging") -> str:
     """Load carrier JSON from api_specs folder, fetch OAuth2 token, inject headers, and test endpoints for a given environment (staging, qa, production, development)."""
+    # Input validation
+    if not api_file_path or ".." in api_file_path:
+        return "❌ Invalid API file path"
+    
     if not os.path.exists(api_file_path):
         return f"❌ API spec not found at {api_file_path}"
 
