@@ -12,7 +12,6 @@ import requests
 import google.generativeai as genai
 
 # Add project root to path
-import os
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(project_root)
 
@@ -24,6 +23,13 @@ except ImportError:
     from langchain_community.vectorstores import FAISS
     VECTOR_DB = "faiss"
     st.warning("⚠️ Qdrant not available, falling back to FAISS vector store")
+
+# Import simplified agents that work everywhere
+try:
+    from src.doc_analysis.simple_agents import SimpleAgentCoordinator, SimpleAdaptiveLearning
+    has_simple_agents = True
+except ImportError:
+    has_simple_agents = False
 
 def get_gemini_api_key():
     return os.getenv("GEMINI_API_KEY")
@@ -147,6 +153,26 @@ else:  # Gemini
         st.error("GEMINI_API_KEY not found in environment variables. Please add it to your .env file.")
         st.info("Continuing, but Gemini responses will fail.")
 
+# --- Agentic AI Section ---
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🤖 Agentic AI")
+
+# Setup agent modes
+if has_simple_agents:
+    st.sidebar.subheader("Agent Mode")
+    agentic_mode = st.sidebar.selectbox(
+        "Select Agent Mode",
+        ["Standard Chat", "Multi-Agent Analysis", "Learning Enhanced"],
+        label_visibility="collapsed"
+    )
+    
+    # Create agent instances
+    simple_coordinator = SimpleAgentCoordinator()
+    simple_learning = SimpleAdaptiveLearning()
+else:
+    agentic_mode = "Standard Chat"
+    st.sidebar.warning("⚠️ Agentic features not available")
+    st.sidebar.info("Using Standard Chat mode only")
 
 # --- File Upload (moved to right side) ---
 upload_col1, upload_col2 = st.columns([3, 1])
@@ -327,26 +353,6 @@ if retriever is not None and not is_cloud() and retrieval_model_source != "Gemin
 else:
     qa_chain = None
 
-# --- Agentic AI Section ---
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🤖 Agentic AI")
-
-# Import agentic components
-try:
-    # Project root is already in sys.path
-    from src.doc_analysis.coordinator import AgentCoordinator
-    from src.doc_analysis.learning_system import AdaptiveLearning
-    
-    st.sidebar.subheader("Agent Mode")
-    agentic_mode = st.sidebar.selectbox(
-        "Select Agent Mode",
-        ["Standard Chat", "Multi-Agent Analysis", "Learning Enhanced"],
-        label_visibility="collapsed"
-    )
-except ImportError:
-    agentic_mode = "Standard Chat"
-    st.sidebar.warning("⚠️ Agentic features not available")
-
 # --- Chat UI ---
 st.markdown("---")
 st.subheader("💬 Chat")
@@ -368,7 +374,6 @@ with chat_container:
 # Chat input
 query = st.chat_input("Type your question here...")
 
-
 if query and retriever:
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": query})
@@ -378,7 +383,7 @@ if query and retriever:
         st.write(query)
     
     # Agentic AI Enhancement
-    if 'agentic_mode' in locals() and agentic_mode == "Multi-Agent Analysis":
+    if has_simple_agents and agentic_mode == "Multi-Agent Analysis":
         with st.chat_message("assistant"):
             with st.spinner("🤖 Multi-Agent Analysis..."):
                 try:
@@ -398,8 +403,6 @@ Provide a comprehensive multi-perspective analysis including:
 3. Process workflows
 4. Edge cases and considerations"""
                     
-                    coordinator = AgentCoordinator()
-                    
                     # Determine the appropriate analysis mode based on the query
                     if any(keyword in query.lower() for keyword in ["summarize", "summary", "overview", "explain", "what is", "how does", "knowledge"]):
                         analysis_mode = "summary"
@@ -408,7 +411,8 @@ Provide a comprehensive multi-perspective analysis including:
                     else:
                         analysis_mode = "balanced"
                     
-                    result_text = coordinator.collaborative_analysis(enhanced_prompt, mode=analysis_mode)
+                    # Use the simplified agent coordinator
+                    result_text = simple_coordinator.collaborative_analysis(enhanced_prompt, mode=analysis_mode)
                     st.markdown("🤖 **Multi-Agent Analysis:**")
                     st.write(result_text)
                     
@@ -426,12 +430,11 @@ Provide a comprehensive multi-perspective analysis including:
                     # Fallback to standard mode
                     agentic_mode = "Standard Chat"
     
-    elif 'agentic_mode' in locals() and agentic_mode == "Learning Enhanced":
+    elif has_simple_agents and agentic_mode == "Learning Enhanced":
         with st.chat_message("assistant"):
             with st.spinner("🧠 Learning Enhanced Analysis..."):
                 try:
-                    learning = AdaptiveLearning()
-                    enhanced_query = learning.get_query_suggestions(query)
+                    enhanced_query = simple_learning.get_query_suggestions(query)
                     st.info(f"📝 Enhanced query: {enhanced_query}")
                     query = enhanced_query  # Use enhanced query
                     
@@ -494,7 +497,7 @@ Helpful Answer:
                     st.session_state.messages.append({"role": "assistant", "content": error_msg})
     
     # Standard or fallback processing
-    elif 'agentic_mode' not in locals() or agentic_mode == "Standard Chat":
+    elif not has_simple_agents or agentic_mode == "Standard Chat":
         with st.chat_message("assistant"):
             with st.spinner("🤔 Thinking..."):
                 if retrieval_model_source == "Gemini":
@@ -567,8 +570,8 @@ Helpful Answer:
                 import json
                 feedback_data = {
                     "query": query,
-                    "response": result["result"] if retrieval_model_source != "Gemini" else answer,
-                    "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]] if retrieval_model_source != "Gemini" else [doc.metadata.get('source', '') for doc in docs],
+                    "response": result["result"] if retrieval_model_source != "Gemini" and 'result' in locals() else answer if 'answer' in locals() else "",
+                    "sources": [doc.metadata.get('source', '') for doc in result["source_documents"]] if retrieval_model_source != "Gemini" and 'result' in locals() else [doc.metadata.get('source', '') for doc in docs] if 'docs' in locals() else [],
                     "feedback": feedback_type,
                     "comment": feedback_comment or "",
                     "retrieval_model": retrieval_model_source,
