@@ -20,9 +20,11 @@ try:
     from src.doc_analysis.tools.qdrant_store import store_documents, get_retriever
     VECTOR_DB = "qdrant"
 except ImportError:
-    from langchain_community.vectorstores import FAISS
     VECTOR_DB = "faiss"
     st.warning("⚠️ Qdrant not available, falling back to FAISS vector store")
+
+# Always import FAISS for fallback
+from langchain_community.vectorstores import FAISS
 
 # Import simplified agents that work everywhere
 try:
@@ -679,7 +681,20 @@ if jira_fetch and jira_url and jira_email and jira_token:
             docs = [Document(page_content=d["content"], metadata=d["metadata"]) for d in jira_docs]
             splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=50)
             chunks = splitter.split_documents(docs)
-            upload_vectordb = FAISS.from_documents(chunks, embedding_model)
+            # Create directory if it doesn't exist
+            os.makedirs(faiss_index_path, exist_ok=True)
+            
+            # Create new FAISS index or add to existing one
+            if os.path.exists(os.path.join(faiss_index_path, "index.faiss")):
+                upload_vectordb = FAISS.load_local(
+                    faiss_index_path,
+                    embeddings=embedding_model,
+                    allow_dangerous_deserialization=True
+                )
+                upload_vectordb.add_documents(chunks)
+            else:
+                upload_vectordb = FAISS.from_documents(chunks, embedding_model)
+                
             upload_vectordb.save_local(faiss_index_path)
             if chunks:
                 success_msg = f"Fetched and indexed {len(jira_docs)} Jira issues!"
