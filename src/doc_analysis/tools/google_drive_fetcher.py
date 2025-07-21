@@ -141,10 +141,17 @@ def _add_to_vector_store(docs: List[Document]) -> None:
     """Add documents to the vector store"""
     embedding_model = OpenAIEmbeddings()
     
+    # Get project root directory
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    faiss_path = os.path.join(project_root, "faiss_index_openai")
+    
+    # Create directory if it doesn't exist
+    os.makedirs(faiss_path, exist_ok=True)
+    
     # Check if vector store exists
-    if os.path.exists("faiss_index_openai"):
+    if os.path.exists(os.path.join(faiss_path, "index.faiss")):
         vectordb = FAISS.load_local(
-            "faiss_index_openai",
+            faiss_path,
             embedding_model,
             allow_dangerous_deserialization=True
         )
@@ -152,4 +159,4 @@ def _add_to_vector_store(docs: List[Document]) -> None:
     else:
         vectordb = FAISS.from_documents(docs, embedding_model)
     
-    vectordb.save_local("faiss_index_openai")
+    vectordb.save_local(faiss_path)

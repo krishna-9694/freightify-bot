@@ -12,7 +12,9 @@ import requests
 import google.generativeai as genai
 
 # Add project root to path
-sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(project_root)
 
 # Try to import Qdrant, fall back to FAISS if not available
 try:
@@ -27,7 +29,23 @@ def get_gemini_api_key():
     return os.getenv("GEMINI_API_KEY")
 
 def is_cloud():
-    return os.environ.get("STREAMLIT_CLOUD", "0") == "1" or "streamlit" in os.environ.get("HOME", "")
+    """Check if the app is running on Streamlit Cloud or other cloud environment"""
+    # Check for Streamlit Cloud environment variables
+    if os.environ.get("STREAMLIT_CLOUD", "0") == "1" or "streamlit" in os.environ.get("HOME", ""):
+        return True
+    
+    # Check for other common cloud environment variables
+    if os.environ.get("DYNO") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("VERCEL"):
+        return True
+    
+    # Check if Ollama is available (to detect if we're in a local environment)
+    try:
+        import requests
+        response = requests.get("http://localhost:11434/api/version", timeout=1)
+        return False  # Ollama is available, so we're not in cloud
+    except:
+        # If we can't connect to Ollama, assume we're in cloud
+        return True
 
 # --- Load environment variables ---
 load_dotenv()
@@ -50,8 +68,12 @@ header_col1, header_col2 = st.columns([5, 1])
 with header_col1:
     st.title("🚢 Freightify Bot")
 with header_col2:
-    logo = Image.open("scripts/logo.jpg")
-    st.image(logo, caption=None, width=150)
+    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
+    if os.path.exists(logo_path):
+        logo = Image.open(logo_path)
+        st.image(logo, caption=None, width=150)
+    else:
+        st.write("🚢")  # Fallback emoji if logo not found
 
 # --- Sidebar Model Selectors ---
 st.sidebar.title("🔧 Configuration")
@@ -61,28 +83,70 @@ st.sidebar.subheader("Choose Model for Retrieval/Chat")
 retrieval_model_source = st.sidebar.selectbox("Retrieval Model", ["Ollama", "OpenAI", "Gemini"] if not is_cloud() else ["OpenAI", "Gemini"], label_visibility="collapsed")
 
 # --- Embedding Model Selection ---
-if is_cloud() or embedding_model_source == "OpenAI" or retrieval_model_source == "Gemini":
-    from langchain_openai import OpenAIEmbeddings
-    embedding_model = OpenAIEmbeddings()
-    embedding_label = "OpenAI"
-    collection_name = "freightify_docs_openai"
-    faiss_index_path = "faiss_index_openai"
+# Check if we're in cloud environment or user selected OpenAI/Gemini
+cloud_environment = is_cloud()
+if cloud_environment:
+    # Force OpenAI in cloud environments
+    embedding_model_source = "OpenAI"
+    st.sidebar.info("⚠️ Running in cloud environment. Using OpenAI embeddings only.")
+
+if cloud_environment or embedding_model_source == "OpenAI" or retrieval_model_source == "Gemini":
+    try:
+        from langchain_openai import OpenAIEmbeddings
+        embedding_model = OpenAIEmbeddings()
+        embedding_label = "OpenAI"
+        collection_name = "freightify_docs_openai"
+        faiss_index_path = "faiss_index_openai"
+    except Exception as e:
+        st.error(f"Error initializing OpenAI embeddings: {str(e)}. Please check your OPENAI_API_KEY.")
+        st.stop()
 else:
-    from langchain_community.embeddings import OllamaEmbeddings
-    embedding_model = OllamaEmbeddings(model="nomic-embed-text")
-    embedding_label = "Ollama"
-    collection_name = "freightify_docs_ollama"
-    faiss_index_path = "faiss_index_ollama"
+    try:
+        from langchain_community.embeddings import OllamaEmbeddings
+        embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+        embedding_label = "Ollama"
+        collection_name = "freightify_docs_ollama"
+        faiss_index_path = "faiss_index_ollama"
+    except Exception as e:
+        st.error(f"Error initializing Ollama embeddings: {str(e)}. Falling back to OpenAI.")
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            embedding_model = OpenAIEmbeddings()
+            embedding_label = "OpenAI"
+            collection_name = "freightify_docs_openai"
+            faiss_index_path = "faiss_index_openai"
+        except Exception as e2:
+            st.error(f"Error initializing OpenAI embeddings: {str(e2)}. Please check your OPENAI_API_KEY.")
+            st.stop()
 
 # --- LLM Selection ---
-if retrieval_model_source == "Ollama" and not is_cloud():
-    from langchain_community.llms import Ollama
-    llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]))
+if retrieval_model_source == "Ollama" and not cloud_environment:
+    try:
+        from langchain_community.llms import Ollama
+        llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]))
+    except Exception as e:
+        st.error(f"Error initializing Ollama LLM: {str(e)}. Falling back to OpenAI.")
+        retrieval_model_source = "OpenAI"
+        try:
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model="gpt-3.5-turbo")
+        except Exception as e2:
+            st.error(f"Error initializing OpenAI LLM: {str(e2)}. Please check your OPENAI_API_KEY.")
+            st.stop()
 elif retrieval_model_source == "OpenAI":
-    from langchain_openai import ChatOpenAI
-    llm = ChatOpenAI(model=st.sidebar.selectbox("OpenAI Model", ["gpt-4", "gpt-3.5-turbo"]))
+    try:
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model=st.sidebar.selectbox("OpenAI Model", ["gpt-4", "gpt-3.5-turbo"]))
+    except Exception as e:
+        st.error(f"Error initializing OpenAI LLM: {str(e)}. Please check your OPENAI_API_KEY.")
+        st.stop()
 else:  # Gemini
     llm = None  # Use Gemini HTTP API as below
+    # Check if GEMINI_API_KEY is set
+    if not os.environ.get("GEMINI_API_KEY"):
+        st.error("GEMINI_API_KEY not found in environment variables. Please add it to your .env file.")
+        st.info("Continuing, but Gemini responses will fail.")
+
 
 # --- File Upload (moved to right side) ---
 upload_col1, upload_col2 = st.columns([3, 1])
@@ -112,84 +176,126 @@ if uploaded_file:
     chunks = splitter.split_documents(docs)
     # Add to vector store
     try:
-        if VECTOR_DB == "qdrant":
-            vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
-            st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
-        else:
-            # FAISS fallback
-            if os.path.exists(faiss_index_path):
-                vectordb = FAISS.load_local(
-                    faiss_index_path,
-                    embeddings=embedding_model,
-                    allow_dangerous_deserialization=True
-                )
-                vectordb.add_documents(chunks)
-            else:
-                vectordb = FAISS.from_documents(chunks, embedding_model)
-            vectordb.save_local(faiss_index_path)
-            st.success(f"Document uploaded and indexed with {embedding_label} embeddings in FAISS! You can now ask questions about it.")
+        # In cloud environment, always use FAISS
+        if cloud_environment:
+            VECTOR_DB = "faiss"
+        
+        if VECTOR_DB == "qdrant" and not cloud_environment:
+            try:
+                vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
+                st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
+            except Exception as e:
+                st.error(f"Error storing documents in Qdrant: {str(e)}")
+                st.info("Falling back to FAISS vector store.")
+                # Fall back to FAISS
+                VECTOR_DB = "faiss"
+        
+        # FAISS fallback or primary option
+        if VECTOR_DB == "faiss":
+            # Create directory if it doesn't exist
+            os.makedirs(faiss_index_path, exist_ok=True)
+            
+            try:
+                if os.path.exists(os.path.join(faiss_index_path, "index.faiss")):
+                    vectordb = FAISS.load_local(
+                        faiss_index_path,
+                        embeddings=embedding_model,
+                        allow_dangerous_deserialization=True
+                    )
+                    vectordb.add_documents(chunks)
+                else:
+                    vectordb = FAISS.from_documents(chunks, embedding_model)
+                vectordb.save_local(faiss_index_path)
+                st.success(f"Document uploaded and indexed with {embedding_label} embeddings in FAISS! You can now ask questions about it.")
+            except Exception as e:
+                st.error(f"Error storing documents in FAISS: {str(e)}")
     except Exception as e:
-        st.error(f"Error storing documents: {str(e)}")
+        st.error(f"Error processing document: {str(e)}")
 
 # --- Retrieval Embedding Selection ---
 if retrieval_model_source == "Gemini":
-    from langchain_openai import OpenAIEmbeddings
-    retrieval_embedding = OpenAIEmbeddings()
-    retrieval_collection_name = "freightify_docs_openai"
+    try:
+        from langchain_openai import OpenAIEmbeddings
+        retrieval_embedding = OpenAIEmbeddings()
+        retrieval_collection_name = "freightify_docs_openai"
+        retrieval_faiss_index_path = "faiss_index_openai"
+    except Exception as e:
+        st.error(f"Error initializing OpenAI embeddings for retrieval: {str(e)}. Please check your OPENAI_API_KEY.")
+        st.stop()
 else:
     retrieval_embedding = embedding_model
     retrieval_collection_name = collection_name
+    retrieval_faiss_index_path = faiss_index_path
 
 # --- Get retriever ---
 try:
+    # In cloud environment, always use FAISS for simplicity
+    if cloud_environment:
+        VECTOR_DB = "faiss"
+        st.sidebar.info("⚠️ Running in cloud environment. Using FAISS vector store.")
+    
     if VECTOR_DB == "qdrant":
-        # Import directly from langchain to ensure compatibility
-        from langchain_community.vectorstores import Qdrant
-        from src.doc_analysis.tools.qdrant_store import get_qdrant_client
-        
-        # Get Qdrant client
-        client = get_qdrant_client()
-        
-        # Create vector store directly to ensure correct parameters
         try:
-            vector_store = Qdrant(
-                client=client,
-                collection_name=retrieval_collection_name,
-                embedding=retrieval_embedding  # Try with embedding (singular)
-            )
-        except Exception:
-            vector_store = Qdrant(
-                client=client,
-                collection_name=retrieval_collection_name,
-                embeddings=retrieval_embedding  # Try with embeddings (plural)
-            )
+            # Import directly from langchain to ensure compatibility
+            from langchain_community.vectorstores import Qdrant
+            from src.doc_analysis.tools.qdrant_store import get_qdrant_client
+            
+            # Get Qdrant client
+            client = get_qdrant_client()
+            
+            # Create vector store directly to ensure correct parameters
+            try:
+                vector_store = Qdrant(
+                    client=client,
+                    collection_name=retrieval_collection_name,
+                    embedding=retrieval_embedding  # Try with embedding (singular)
+                )
+            except Exception:
+                vector_store = Qdrant(
+                    client=client,
+                    collection_name=retrieval_collection_name,
+                    embeddings=retrieval_embedding  # Try with embeddings (plural)
+                )
+            
+            # Create retriever
+            retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+            
+            # Test retriever
+            try:
+                retriever.get_relevant_documents("test")
+                st.sidebar.success("✅ Connected to Qdrant successfully")
+            except Exception as inner_e:
+                st.sidebar.error(f"Error testing retriever: {str(inner_e)}")
+                st.sidebar.info("Falling back to FAISS vector store.")
+                VECTOR_DB = "faiss"  # Fall back to FAISS
+        except Exception as e:
+            st.sidebar.error(f"Could not connect to Qdrant: {str(e)}")
+            st.sidebar.info("Falling back to FAISS vector store.")
+            VECTOR_DB = "faiss"  # Fall back to FAISS
+    
+    # FAISS fallback or primary option
+    if VECTOR_DB == "faiss":
+        # Create directories if they don't exist
+        os.makedirs(retrieval_faiss_index_path, exist_ok=True)
         
-        # Create retriever
-        retriever = vector_store.as_retriever(search_kwargs={"k": 4})
-        
-        # Test retriever
-        try:
-            retriever.get_relevant_documents("test")
-            st.sidebar.success("✅ Connected to Qdrant successfully")
-        except Exception as inner_e:
-            st.sidebar.error(f"Error testing retriever: {str(inner_e)}")
-            retriever = None
-    else:
-        # FAISS fallback
-        if os.path.exists(faiss_index_path):
-            vectordb = FAISS.load_local(
-                faiss_index_path,
-                embeddings=retrieval_embedding,
-                allow_dangerous_deserialization=True
-            )
-            retriever = vectordb.as_retriever(search_kwargs={"k": 4})
-            st.sidebar.success("✅ Connected to FAISS successfully")
+        if os.path.exists(os.path.join(retrieval_faiss_index_path, "index.faiss")):
+            try:
+                vectordb = FAISS.load_local(
+                    retrieval_faiss_index_path,
+                    embeddings=retrieval_embedding,
+                    allow_dangerous_deserialization=True
+                )
+                retriever = vectordb.as_retriever(search_kwargs={"k": 4})
+                st.sidebar.success("✅ Connected to FAISS successfully")
+            except Exception as e:
+                st.sidebar.error(f"Error loading FAISS index: {str(e)}")
+                retriever = None
         else:
             st.sidebar.warning("No vector store found. Please upload documents first.")
             retriever = None
         
 except Exception as e:
-    st.sidebar.error(f"Could not connect to vector store: {str(e)}")
+    st.sidebar.error(f"Could not connect to any vector store: {str(e)}")
     retriever = None
 
 # --- Prompt Template ---
@@ -227,7 +333,7 @@ st.sidebar.markdown("### 🤖 Agentic AI")
 
 # Import agentic components
 try:
-    sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+    # Project root is already in sys.path
     from src.doc_analysis.coordinator import AgentCoordinator
     from src.doc_analysis.learning_system import AdaptiveLearning
     
@@ -587,7 +693,7 @@ if freshworks_fetch and freshworks_domain and freshworks_api_key:
     with st.spinner("Fetching Freshworks tickets..."):
         try:
             # Import the Freshworks fetcher
-            sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+            # Project root is already in sys.path
             from src.doc_analysis.tools.freshworks_fetcher import fetch_and_embed_freshworks_ticket
             
             # Fetch tickets
@@ -612,7 +718,7 @@ if google_fetch:
     with st.spinner("Fetching Google Drive documents..."):
         try:
             # Import the Google Drive fetcher
-            sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+            # Project root is already in sys.path
             from src.doc_analysis.tools.google_drive_fetcher import fetch_google_drive_documents
             
             # Determine which fetch method to use

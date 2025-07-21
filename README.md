@@ -27,7 +27,7 @@ A powerful document analysis and question-answering system built with CrewAI, La
 - API keys for LLM providers (OpenAI, Gemini)
 - Qdrant cloud account or local installation (optional)
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Local Development)
 
 ### 1. Clone the Repository
 
@@ -136,6 +136,24 @@ To clean up temporary files and prepare for deployment:
 # Run the cleanup script
 python scripts/cleanup_repo.py
 ```
+
+## ☁️ Cloud Deployment
+
+The application is designed to work in cloud environments like Streamlit Cloud:
+
+1. **Automatic Fallbacks**: In cloud environments, the app automatically:
+   - Uses OpenAI embeddings instead of Ollama
+   - Uses FAISS instead of Qdrant for vector storage
+   - Provides appropriate error messages and fallbacks
+
+2. **Required Environment Variables**:
+   - `OPENAI_API_KEY`: Required for embeddings and OpenAI models
+   - `GEMINI_API_KEY`: Required if using Gemini models
+
+3. **Deploy to Streamlit Cloud**:
+   - Connect your GitHub repository to Streamlit Cloud
+   - Set the required environment variables
+   - Set the main file to `scripts/chat_rag.py`
 
 ## 📊 Advanced Features
 

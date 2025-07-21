@@ -10,7 +10,9 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import OllamaEmbeddings
 
 # Add project root to path
-sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(project_root)
 from src.doc_analysis.tools.qdrant_store import store_documents
 
 # Load environment variables

@@ -22,8 +22,15 @@ def fetch_and_embed_freshworks_ticket(ticket_id: str = None, domain: str = None,
     if not domain or not api_key:
         return "❌ Missing Freshworks credentials. Please provide domain and API key."
 
+    # Get project root directory
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    chroma_path = os.path.join(project_root, "vectorstore_openai")
+    
+    # Create directory if it doesn't exist
+    os.makedirs(chroma_path, exist_ok=True)
+    
     vectordb = Chroma(
-        persist_directory="vectorstore_openai",
+        persist_directory=chroma_path,
         embedding_function=OpenAIEmbeddings()
     )
 
