@@ -302,7 +302,7 @@ if uploaded_file:
                 retriever = vectordb.as_retriever(search_kwargs={"k": 4})
                 st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
                 # Rerun to refresh the UI
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"Error storing documents in Qdrant: {str(e)}")
                 st.info("Falling back to FAISS vector store.")
@@ -333,7 +333,7 @@ if uploaded_file:
                 st.success(f"Document uploaded and indexed with {embedding_label} embeddings in FAISS! You can now ask questions about it.")
                 
                 # Rerun to refresh the UI
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"Error storing documents in FAISS: {str(e)}")
     except Exception as e:
@@ -722,7 +722,7 @@ if jira_fetch and jira_url and jira_email and jira_token:
                 st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
                 
                 # Rerun the app to refresh the UI with the new retriever
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.warning("No content to index from Jira issues (issues may be empty or too short).")
         except Exception as e:
@@ -750,7 +750,7 @@ if freshworks_fetch and freshworks_domain and freshworks_api_key:
                 st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
                 
                 # Rerun the app to refresh the UI
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.warning(result)
         except Exception as e:
@@ -782,7 +782,7 @@ if google_fetch:
                     st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
                     
                     # Rerun the app to refresh the UI
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.warning(result)
             else:
