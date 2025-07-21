@@ -1,15 +1,19 @@
 import os
+import sys
 import streamlit as st
 from dotenv import load_dotenv
 from PIL import Image
 import uuid
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import (
     TextLoader, PyPDFLoader, UnstructuredWordDocumentLoader, UnstructuredExcelLoader, CSVLoader
 )
 import requests
 import google.generativeai as genai
+
+# Add project root to path
+sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+from src.doc_analysis.tools.qdrant_store import store_documents, get_retriever
 
 def get_gemini_api_key():
     return os.getenv("GEMINI_API_KEY")
@@ -20,31 +24,45 @@ def is_cloud():
 # --- Load environment variables ---
 load_dotenv()
 
+# --- Check for Qdrant configuration ---
+qdrant_api_key = os.getenv("QDRANT_API_KEY")
+qdrant_url = os.getenv("QDRANT_URL")
+qdrant_path = os.getenv("QDRANT_PATH")
+
+if not (qdrant_api_key and qdrant_url) and not qdrant_path:
+    st.warning("⚠️ Qdrant configuration missing. Please set QDRANT_API_KEY and QDRANT_URL for cloud deployment, or QDRANT_PATH for local deployment in your .env file.")
+    st.info("Using temporary in-memory storage for this session. Your data will not persist after closing the app.")
+    # Will create a local temporary directory for Qdrant
+
 # --- UI Setup ---
 st.set_page_config(page_title="Freightify Bot", layout="wide")
-col1, col2 = st.columns([4, 1])
-with col2:
-    logo = Image.open("scripts/logo.jpg")
-    st.image(logo, caption=None, use_container_width=True)
-with col1:
+
+# Main header with logo on right
+header_col1, header_col2 = st.columns([5, 1])
+with header_col1:
     st.title("🚢 Freightify Bot")
+with header_col2:
+    logo = Image.open("scripts/logo.jpg")
+    st.image(logo, caption=None, width=150)
 
 # --- Sidebar Model Selectors ---
 st.sidebar.title("🔧 Configuration")
-embedding_model_source = st.sidebar.selectbox("Choose Model for Embedding", ["Ollama", "OpenAI"] if not is_cloud() else ["OpenAI"])
-retrieval_model_source = st.sidebar.selectbox("Choose Model for Retrieval/Chat", ["Ollama", "OpenAI", "Gemini"] if not is_cloud() else ["OpenAI", "Gemini"])
+st.sidebar.subheader("Choose Model for Embedding")
+embedding_model_source = st.sidebar.selectbox("Embedding Model", ["Ollama", "OpenAI"] if not is_cloud() else ["OpenAI"], label_visibility="collapsed")
+st.sidebar.subheader("Choose Model for Retrieval/Chat")
+retrieval_model_source = st.sidebar.selectbox("Retrieval Model", ["Ollama", "OpenAI", "Gemini"] if not is_cloud() else ["OpenAI", "Gemini"], label_visibility="collapsed")
 
 # --- Embedding Model Selection ---
 if is_cloud() or embedding_model_source == "OpenAI" or retrieval_model_source == "Gemini":
     from langchain_openai import OpenAIEmbeddings
     embedding_model = OpenAIEmbeddings()
     embedding_label = "OpenAI"
-    faiss_index_path = "faiss_index_openai"
+    collection_name = "freightify_docs_openai"
 else:
     from langchain_community.embeddings import OllamaEmbeddings
     embedding_model = OllamaEmbeddings(model="nomic-embed-text")
     embedding_label = "Ollama"
-    faiss_index_path = "faiss_index_ollama"
+    collection_name = "freightify_docs_ollama"
 
 # --- LLM Selection ---
 if retrieval_model_source == "Ollama" and not is_cloud():
@@ -56,9 +74,12 @@ elif retrieval_model_source == "OpenAI":
 else:  # Gemini
     llm = None  # Use Gemini HTTP API as below
 
-# --- File Upload ---
-st.subheader(f"Upload a document to index with {embedding_label} embeddings:")
-uploaded_file = st.file_uploader("Upload a document", type=["pdf", "docx", "txt", "md", "csv", "xlsx"])
+# --- File Upload (moved to right side) ---
+upload_col1, upload_col2 = st.columns([3, 1])
+with upload_col1:
+    st.subheader(f"Upload a document to analyse with {embedding_label}:")
+with upload_col2:
+    uploaded_file = st.file_uploader("Upload a document", type=["pdf", "docx", "txt", "md", "csv", "xlsx"], label_visibility="collapsed")
 if uploaded_file:
     unique_name = f"{uuid.uuid4()}_{uploaded_file.name}"
     temp_path = os.path.join("uploads", unique_name)
@@ -79,38 +100,58 @@ if uploaded_file:
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     chunks = splitter.split_documents(docs)
-    # Add to the selected embedding model's vectorstore
-    if os.path.exists(faiss_index_path):
-        vectordb = FAISS.load_local(
-            faiss_index_path,
-            embeddings=embedding_model,
-            allow_dangerous_deserialization=True
-        )
-        vectordb.add_documents(chunks)
-    else:
-        vectordb = FAISS.from_documents(chunks, embedding_model)
-    vectordb.save_local(faiss_index_path)
-    st.success(f"Document uploaded and indexed with {embedding_label} embeddings! You can now ask questions about it.")
+    # Add to Qdrant vector store
+    try:
+        vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
+        st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
+    except Exception as e:
+        st.error(f"Error storing documents in Qdrant: {str(e)}")
 
 # --- Retrieval Embedding Selection ---
 if retrieval_model_source == "Gemini":
     from langchain_openai import OpenAIEmbeddings
     retrieval_embedding = OpenAIEmbeddings()
-    retrieval_faiss_index_path = "faiss_index_openai"
+    retrieval_collection_name = "freightify_docs_openai"
 else:
     retrieval_embedding = embedding_model
-    retrieval_faiss_index_path = faiss_index_path
+    retrieval_collection_name = collection_name
 
-# --- Load FAISS for retrieval ---
-if os.path.exists(retrieval_faiss_index_path):
-    vectordb = FAISS.load_local(
-        retrieval_faiss_index_path,
-        embeddings=retrieval_embedding,
-        allow_dangerous_deserialization=True
-    )
-    retriever = vectordb.as_retriever()
-else:
-    vectordb = None
+# --- Get Qdrant retriever ---
+try:
+    # Import directly from langchain to ensure compatibility
+    from langchain_community.vectorstores import Qdrant
+    from src.doc_analysis.tools.qdrant_store import get_qdrant_client
+    
+    # Get Qdrant client
+    client = get_qdrant_client()
+    
+    # Create vector store directly to ensure correct parameters
+    try:
+        vector_store = Qdrant(
+            client=client,
+            collection_name=retrieval_collection_name,
+            embedding=retrieval_embedding  # Try with embedding (singular)
+        )
+    except Exception:
+        vector_store = Qdrant(
+            client=client,
+            collection_name=retrieval_collection_name,
+            embeddings=retrieval_embedding  # Try with embeddings (plural)
+        )
+    
+    # Create retriever
+    retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+    
+    # Test retriever
+    try:
+        retriever.get_relevant_documents("test")
+        st.sidebar.success("✅ Connected to Qdrant successfully")
+    except Exception as inner_e:
+        st.sidebar.error(f"Error testing retriever: {str(inner_e)}")
+        retriever = None
+        
+except Exception as e:
+    st.sidebar.error(f"Could not connect to Qdrant: {str(e)}")
     retriever = None
 
 # --- Prompt Template ---
@@ -142,16 +183,119 @@ if retriever is not None and not is_cloud() and retrieval_model_source != "Gemin
 else:
     qa_chain = None
 
+# --- Agentic AI Section ---
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🤖 Agentic AI")
+
+# Import agentic components
+try:
+    sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+    from src.doc_analysis.coordinator import AgentCoordinator
+    from src.doc_analysis.learning_system import AdaptiveLearning
+    
+    st.sidebar.subheader("Agent Mode")
+    agentic_mode = st.sidebar.selectbox(
+        "Select Agent Mode",
+        ["Standard Chat", "Multi-Agent Analysis", "Learning Enhanced"],
+        label_visibility="collapsed"
+    )
+except ImportError:
+    agentic_mode = "Standard Chat"
+    st.sidebar.warning("⚠️ Agentic features not available")
+
 # --- Chat UI ---
-st.subheader("💬 Ask your question")
-query = st.text_input("Type your question here:")
+st.markdown("---")
+st.subheader("💬 Chat")
+
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Create a container for chat messages with fixed height
+chat_container = st.container()
+chat_container.markdown("<div style='min-height: 400px;'></div>", unsafe_allow_html=True)
+
+with chat_container:
+    # Display chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+# Chat input
+query = st.chat_input("Type your question here...")
+
 
 if query and retriever:
-    with st.spinner("🤔 Thinking..."):
-        if retrieval_model_source == "Gemini":
-            docs = retriever.get_relevant_documents(query)
-            context = "\n\n".join([doc.page_content for doc in docs])
-            gemini_prompt = f"""
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": query})
+    
+    # Display user message in chat
+    with st.chat_message("user"):
+        st.write(query)
+    
+    # Agentic AI Enhancement
+    if 'agentic_mode' in locals() and agentic_mode == "Multi-Agent Analysis":
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 Multi-Agent Analysis..."):
+                try:
+                    # Use the current retriever's documents for agentic analysis
+                    docs = retriever.get_relevant_documents(query)
+                    context = "\n\n".join([doc.page_content for doc in docs])
+                    
+                    # Create enhanced prompt for multi-agent analysis
+                    enhanced_prompt = f"""Based on this context from uploaded documents:
+{context}
+
+Query: {query}
+
+Provide a comprehensive multi-perspective analysis including:
+1. Summary of key points
+2. Detailed test scenarios
+3. Process workflows
+4. Edge cases and considerations"""
+                    
+                    coordinator = AgentCoordinator()
+                    
+                    # Determine the appropriate analysis mode based on the query
+                    if any(keyword in query.lower() for keyword in ["summarize", "summary", "overview", "explain", "what is", "how does", "knowledge"]):
+                        analysis_mode = "summary"
+                    elif any(keyword in query.lower() for keyword in ["test", "scenario", "case", "validation"]):
+                        analysis_mode = "testing"
+                    else:
+                        analysis_mode = "balanced"
+                    
+                    result_text = coordinator.collaborative_analysis(enhanced_prompt, mode=analysis_mode)
+                    st.markdown("🤖 **Multi-Agent Analysis:**")
+                    st.write(result_text)
+                    
+                    # Show source documents
+                    with st.expander("📄 Source Documents Used"):
+                        for doc in docs:
+                            st.markdown(f"**{os.path.basename(doc.metadata.get('source', ''))}**")
+                            st.write(doc.page_content[:300] + "...")
+                    
+                    # Add to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": f"🤖 **Multi-Agent Analysis:**\n\n{result_text}"})
+                        
+                except Exception as e:
+                    st.error(f"Agentic analysis failed: {str(e)}")
+                    # Fallback to standard mode
+                    agentic_mode = "Standard Chat"
+    
+    elif 'agentic_mode' in locals() and agentic_mode == "Learning Enhanced":
+        with st.chat_message("assistant"):
+            with st.spinner("🧠 Learning Enhanced Analysis..."):
+                try:
+                    learning = AdaptiveLearning()
+                    enhanced_query = learning.get_query_suggestions(query)
+                    st.info(f"📝 Enhanced query: {enhanced_query}")
+                    query = enhanced_query  # Use enhanced query
+                    
+                    # Continue with enhanced query processing
+                    if retrieval_model_source == "Gemini":
+                        docs = retriever.get_relevant_documents(query)
+                        context = "\n\n".join([doc.page_content for doc in docs])
+                        gemini_prompt = f"""
 You are Freightify Bot, an intelligent assistant for logistics and freight teams. 
 Answer questions truthfully using ONLY the context below.
 
@@ -163,40 +307,110 @@ Question:
 
 Helpful Answer:
 """
-            api_key = os.environ["GEMINI_API_KEY"]
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-            data = {
-                "contents": [{"parts": [{"text": gemini_prompt}]}]
-            }
-            response = requests.post(url, json=data)
-            result = response.json()
-            if "candidates" in result:
-                answer = result["candidates"][0]["content"]["parts"][0]["text"]
-            else:
-                answer = result.get("error", {}).get("message", "Unknown error from Gemini API")
-            st.markdown("### 📌 Answer:")
-            st.write(answer)
-            with st.expander("🗂 Source Documents"):
-                for doc in docs:
-                    st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
-                    st.write(doc.page_content[:500] + "...")
-        elif qa_chain is not None:
-            result = qa_chain.invoke({"query": query})
-            st.markdown("### 📌 Answer:")
-            st.write(result["result"])
-            with st.expander("🗂 Source Documents"):
-                for doc in result["source_documents"]:
-                    st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
-                    st.write(doc.page_content[:500] + "...")
-        else:
-            st.warning("No vectorstore found. Please upload documents first.")
+                        api_key = os.environ["GEMINI_API_KEY"]
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                        data = {
+                            "contents": [{"parts": [{"text": gemini_prompt}]}]
+                        }
+                        response = requests.post(url, json=data)
+                        result = response.json()
+                        if "candidates" in result:
+                            answer = result["candidates"][0]["content"]["parts"][0]["text"]
+                        else:
+                            answer = result.get("error", {}).get("message", "Unknown error from Gemini API")
+                        
+                        st.write(answer)
+                        with st.expander("🗂 Source Documents"):
+                            for doc in docs:
+                                st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                                st.write(doc.page_content[:300] + "...")
+                        
+                        # Add to chat history
+                        st.session_state.messages.append({"role": "assistant", "content": answer})
+                    
+                    elif qa_chain is not None:
+                        result = qa_chain.invoke({"query": query})
+                        st.write(result["result"])
+                        with st.expander("🗂 Source Documents"):
+                            for doc in result["source_documents"]:
+                                st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                                st.write(doc.page_content[:300] + "...")
+                        
+                        # Add to chat history
+                        st.session_state.messages.append({"role": "assistant", "content": result["result"]})
+                    
+                    else:
+                        message = "No vectorstore found. Please upload documents first."
+                        st.warning(message)
+                        st.session_state.messages.append({"role": "assistant", "content": message})
+                        
+                except Exception as e:
+                    error_msg = f"Learning enhancement failed: {str(e)}"
+                    st.warning(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    
+    # Standard or fallback processing
+    elif 'agentic_mode' not in locals() or agentic_mode == "Standard Chat":
+        with st.chat_message("assistant"):
+            with st.spinner("🤔 Thinking..."):
+                if retrieval_model_source == "Gemini":
+                    docs = retriever.get_relevant_documents(query)
+                    context = "\n\n".join([doc.page_content for doc in docs])
+                    gemini_prompt = f"""
+You are Freightify Bot, an intelligent assistant for logistics and freight teams. 
+Answer questions truthfully using ONLY the context below.
 
-        # --- Feedback ---
-        feedback_col1, feedback_col2 = st.columns([1, 1])
-        with feedback_col1:
-            thumbs_up = st.button("👍 Helpful", key=f"thumbs_up_{query}")
-        with feedback_col2:
-            thumbs_down = st.button("👎 Not Helpful", key=f"thumbs_down_{query}")
+Context:
+{context}
+
+Question:
+{query}
+
+Helpful Answer:
+"""
+                    api_key = os.environ["GEMINI_API_KEY"]
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+                    data = {
+                        "contents": [{"parts": [{"text": gemini_prompt}]}]
+                    }
+                    response = requests.post(url, json=data)
+                    result = response.json()
+                    if "candidates" in result:
+                        answer = result["candidates"][0]["content"]["parts"][0]["text"]
+                    else:
+                        answer = result.get("error", {}).get("message", "Unknown error from Gemini API")
+                    
+                    st.write(answer)
+                    with st.expander("🗂 Source Documents"):
+                        for doc in docs:
+                            st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                            st.write(doc.page_content[:300] + "...")
+                    
+                    # Add to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                
+                elif qa_chain is not None:
+                    result = qa_chain.invoke({"query": query})
+                    st.write(result["result"])
+                    with st.expander("🗂 Source Documents"):
+                        for doc in result["source_documents"]:
+                            st.markdown(f"**📄 {os.path.basename(doc.metadata.get('source', ''))}**")
+                            st.write(doc.page_content[:300] + "...")
+                    
+                    # Add to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": result["result"]})
+                
+                else:
+                    message = "No vectorstore found. Please upload documents first."
+                    st.warning(message)
+                    st.session_state.messages.append({"role": "assistant", "content": message})
+
+            # --- Feedback with better alignment ---
+        feedback_cols = st.columns([1, 1, 3])
+        with feedback_cols[0]:
+            thumbs_up = st.button("👍 Helpful", key=f"thumbs_up_{query}", use_container_width=True)
+        with feedback_cols[1]:
+            thumbs_down = st.button("👎 Not Helpful", key=f"thumbs_down_{query}", use_container_width=True)
         feedback_given = thumbs_up or thumbs_down
         feedback_comment = None
         if feedback_given:
@@ -220,12 +434,56 @@ Helpful Answer:
                     f.write(json.dumps(feedback_data) + "\n")
                 st.success("✅ Feedback recorded! Thank you for your input.")
 
-st.sidebar.markdown("### Jira Integration")
-jira_url = st.sidebar.text_input("Jira Base URL (e.g. https://yourcompany.atlassian.net)")
-jira_email = st.sidebar.text_input("Jira Email")
-jira_token = st.sidebar.text_input("Jira API Token", type="password")
-jira_ticket = st.sidebar.text_input("Jira Ticket Number")
-jira_fetch = st.sidebar.button("Fetch Jira Issues")
+# --- Integrations Section ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔗 Integrations")
+
+# Jira Integration
+with st.sidebar.expander("Jira Integration"):
+    jira_url = st.text_input("Jira Base URL (e.g. https://yourcompany.atlassian.net)")
+    jira_email = st.text_input("Jira Email")
+    jira_token = st.text_input("Jira API Token", type="password")
+    jira_ticket = st.text_input("Jira Ticket Number")
+    jira_fetch = st.button("Fetch Jira Issues", use_container_width=True)
+
+# Freshworks Integration
+with st.sidebar.expander("Freshworks Integration"):
+    freshworks_domain = st.text_input("Freshworks Domain (e.g. yourcompany.freshdesk.com)")
+    freshworks_api_key = st.text_input("Freshworks API Key", type="password")
+    ticket_id = st.text_input("Ticket ID (optional)")
+    freshworks_fetch = st.button("Fetch Freshworks Tickets", use_container_width=True)
+    
+# Google Drive Integration
+with st.sidebar.expander("Google Drive Integration"):
+    st.markdown("🔍 **Access Google Drive Documents**")
+    
+    # Authentication options
+    auth_method = st.radio(
+        "Authentication Method",
+        ["API Key", "OAuth"],
+        horizontal=True
+    )
+    
+    if auth_method == "API Key":
+        google_api_key = st.text_input("Google API Key", type="password")
+    else:
+        st.info("🔒 OAuth requires additional setup. Click 'Authenticate' to begin the process.")
+        st.button("Authenticate with Google")
+    
+    # Document selection
+    doc_option = st.radio(
+        "Document Selection",
+        ["Document ID", "Folder ID", "Recent Documents"],
+        horizontal=True
+    )
+    
+    if doc_option == "Document ID":
+        doc_id = st.text_input("Google Document ID")
+    elif doc_option == "Folder ID":
+        folder_id = st.text_input("Google Drive Folder ID")
+        max_docs = st.slider("Maximum Documents", 1, 20, 5)
+    
+    google_fetch = st.button("📥 Fetch Google Documents", use_container_width=True)
 
 
 def fetch_jira_issues(jira_url, email, api_token, jql="ORDER BY created DESC", max_results=10):
@@ -259,6 +517,7 @@ def fetch_single_jira_issue(jira_url, email, api_token, issue_key):
     content = f"Jira Issue {key}\nSummary: {summary}\nDescription: {description}"
     return [{"content": content, "metadata": {"source": f"jira:{key}"}}]
     
+# Process Jira fetch request
 if jira_fetch and jira_url and jira_email and jira_token:
     with st.spinner("Fetching Jira issues..."):
         try:
@@ -276,10 +535,67 @@ if jira_fetch and jira_url and jira_email and jira_token:
             upload_vectordb = FAISS.from_documents(chunks, embedding_model)
             upload_vectordb.save_local(faiss_index_path)
             if chunks:
-                st.success(f"Fetched and indexed {len(jira_docs)} Jira issues!")
+                success_msg = f"Fetched and indexed {len(jira_docs)} Jira issues!"
+                st.success(success_msg)
+                # Add system message to chat
+                st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})  
             else:
                 st.warning("No content to index from Jira issues (issues may be empty or too short).")
         except Exception as e:
             st.error(f"Failed to fetch Jira issues: {e}")
 
+# Process Freshworks fetch request
+if freshworks_fetch and freshworks_domain and freshworks_api_key:
+    with st.spinner("Fetching Freshworks tickets..."):
+        try:
+            # Import the Freshworks fetcher
+            sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+            from src.doc_analysis.tools.freshworks_fetcher import fetch_and_embed_freshworks_ticket
+            
+            # Fetch tickets
+            if ticket_id:
+                result = fetch_and_embed_freshworks_ticket(ticket_id, freshworks_domain, freshworks_api_key)
+                success_msg = f"Fetched and indexed Freshworks ticket {ticket_id}"
+            else:
+                result = fetch_and_embed_freshworks_ticket(None, freshworks_domain, freshworks_api_key)
+                success_msg = "Fetched and indexed recent Freshworks tickets"
+            
+            if "✅" in result:
+                st.success(success_msg)
+                # Add system message to chat
+                st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})  
+            else:
+                st.warning(result)
+        except Exception as e:
+            st.error(f"Failed to fetch Freshworks tickets: {e}")
 
+# Process Google Drive fetch request
+if google_fetch:
+    with st.spinner("Fetching Google Drive documents..."):
+        try:
+            # Import the Google Drive fetcher
+            sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
+            from src.doc_analysis.tools.google_drive_fetcher import fetch_google_drive_documents
+            
+            # Determine which fetch method to use
+            if auth_method == "API Key" and google_api_key:
+                if doc_option == "Document ID" and 'doc_id' in locals() and doc_id:
+                    result = fetch_google_drive_documents(doc_id=doc_id, api_key=google_api_key)
+                    success_msg = f"Fetched and indexed Google document"
+                elif doc_option == "Folder ID" and 'folder_id' in locals() and folder_id:
+                    result = fetch_google_drive_documents(folder_id=folder_id, max_docs=max_docs, api_key=google_api_key)
+                    success_msg = f"Fetched and indexed documents from Google Drive folder"
+                else:
+                    result = fetch_google_drive_documents(max_docs=5, api_key=google_api_key)
+                    success_msg = "Fetched and indexed recent Google Drive documents"
+                
+                if "✅" in result:
+                    st.success(success_msg)
+                    # Add system message to chat
+                    st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
+                else:
+                    st.warning(result)
+            else:
+                st.warning("Please provide a Google API key and select document options")
+        except Exception as e:
+            st.error(f"Failed to fetch Google Drive documents: {e}")

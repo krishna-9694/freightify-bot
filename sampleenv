@@ -1,12 +1,10 @@
-OPENAI_API_KEY= 
-CHROMA_TELEMETRY_ENABLED=false
-STAGING_DOMAIN=*.staginship.freightify.io
-STAGING_API_USERNAME=
-STAGING_API_PASSWORD=
-STAGING_API_CLIENT_ID=
-STAGING_API_CLIENT_SECRET=
-STAGING_API_KEY=
-TOKEN_CACHE_PATH=.token_cache.json
-JIRA_BASE_URL=
-JIRA_USER_EMAIL=
-JIRA_API_TOKEN =
+OPENAI_API_KEY=your-openai-api-key
+GEMINI_API_KEY=your-gemini-api-key
+
+# Qdrant Configuration
+# Option 1: Cloud deployment (preferred for production)
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_URL=https://your-cluster.qdrant.io
+
+# Option 2: Local deployment (for development)
+# QDRANT_PATH=./qdrant_data

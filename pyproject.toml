@@ -16,6 +16,10 @@ unstructured = "*"
 pypdf = "*"
 pandas = "*"
 pytest = '*'
+black = "*"
+isort = "*"
+flake8 = "*"
+mypy = "*"
 
 # Helpers
 python-dotenv = "*"
@@ -30,7 +34,7 @@ langchain-chroma = '*'
 langchain-community = '*'
 langchain-ollama = "^0.3.4"
 streamlit = "^1.46.1"
-
+qdrant-client = "^1.7.0"
 
 google-generativeai = "*"
 faiss-cpu = "^1.11.0.post1"
