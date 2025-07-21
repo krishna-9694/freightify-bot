@@ -98,3 +98,16 @@ flowchart.md
 
 # Ignore test output
 test-output/
+
+# Added by cleanup script
+faiss_index_ollama
+faiss_index_openai
+vectorstore_nomic
+vectorstore_ollama
+vectorstore_openai
+uploads
+enhanced_main.py
+run_app.py
+feedback_log.jsonl
+llm_finetune_data.jsonl
+openai_finetune_ready.jsonl

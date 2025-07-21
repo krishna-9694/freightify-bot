@@ -1,247 +1,164 @@
-# 🧠 Interactive CrewAI: Document Analysis
+# 🚢 Freightify Bot: Document Intelligence System
 
-This project allows users to interactively choose:
-- A **Document Summarizer Agent**
-- A **Test Case Generator Agent**
+A powerful document analysis and question-answering system built with CrewAI, LangChain, and Qdrant vector database. This system provides intelligent responses to queries about your documents with multi-agent analysis capabilities.
 
-Each agent works on documents in the `common/` folder.
+## ✨ Features
 
-## 🚀 How to Run
+- **Conversational Chat Interface**: User-friendly Streamlit UI with message history
+- **Multi-Agent Analysis**: Collaborative AI agents for comprehensive document analysis
+- **Multiple LLM Support**: Works with OpenAI, Gemini, and Ollama models
+- **Scalable Vector Storage**: Qdrant integration for handling large document collections
+- **Document Processing**: Support for PDF, DOCX, TXT, MD, CSV, and XLSX files
+- **External Integrations**: Connect with Jira, Freshworks, and Google Drive
+- **Feedback Collection**: Gather user feedback to improve responses over time
 
-### 1. Install Poetry (if not already installed)
-```bash
-curl -sSL https://install.python-poetry.org | python3 -
+## 🛠️ Tech Stack
 
+- **Frontend**: Streamlit
+- **AI Framework**: CrewAI + LangChain
+- **Vector Database**: Qdrant (with FAISS fallback)
+- **LLM Providers**: OpenAI, Google Gemini, Ollama
+- **Document Processing**: Unstructured, PyPDF, python-docx
 
-### if using Ubuntu or WSL, you may need extra system deps for unstructured:
-sudo apt install poppler-utils tesseract-ocr
+## 📋 Prerequisites
 
-# 🧠 CrewAI Document Analyzer with RAG + Chroma
+- Python 3.10+
+- Poetry (recommended) or pip
+- API keys for LLM providers (OpenAI, Gemini)
+- Qdrant cloud account or local installation (optional)
 
-This project uses [CrewAI](https://github.com/joaomdmoura/crewai) to create autonomous agents that:
-- Summarize internal documentation based on user queries
-- Generate test case scenarios from workflows described in your docs
-
-Now enhanced with a **Retrieval-Augmented Generation (RAG)** pipeline using **Chroma vector DB** for context-aware responses!
-
----
-## 🔧 Features
-✅ Agent selection at runtime  
-✅ Reads from `.md`, `.txt`, `.pdf`, `.docx`, `.csv`, `.xlsx`  
-✅ Embeds documents into Chroma once  
-✅ Retrieves only relevant chunks at runtime  
-✅ Generates high-quality LLM responses with embedded context
----
-
-## 🗂️ Folder Structure
-doc_analysis_crew/
-├── .env # OpenAI API key
-├── pyproject.toml # Poetry dependencies
-├── README.md
-├── common/ # Place all source documents here
-├── scripts/
-│ └── embed_docs.py # Script to embed and persist docs to vector DB
-└── src/
-└── doc_analysis/
-├── agents.py # CrewAI agents
-├── tasks.py # CrewAI tasks
-├── main.py # Runtime interface
-└── tools/
-├── db_logger.py
-└── rag_vector_tool.py
-
-yaml
----
 ## 🚀 Quick Start
 
-### 1️⃣ Install dependencies
+### 1. Clone the Repository
+
 ```bash
+git clone https://github.com/krishna-9694/freightify-bot.git
+cd freightify-bot
+```
+
+### 2. Install Dependencies
+
+**Using Poetry (recommended)**:
+```bash
+# Install Poetry if you don't have it
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Install dependencies
 poetry install
 ```
 
-### 2️⃣ Set your OpenAI API Key
-Create a file called .env in the root:
+**Using pip**:
 ```bash
+pip install -e .
+```
+
+### 3. Set Up Environment Variables
+
+```bash
+# Copy the sample environment file
 cp sampleenv .env
-# Edit .env and add your OPENAI_API_KEY
+
+# Edit .env with your API keys
+# Required:
+# - OPENAI_API_KEY (for OpenAI models)
+# - GEMINI_API_KEY (for Google Gemini models)
+# 
+# Optional for Qdrant cloud:
+# - QDRANT_API_KEY
+# - QDRANT_URL
+#
+# Optional for local Qdrant:
+# - QDRANT_PATH=./qdrant_data
 ```
 
-### 3️⃣ Add your documents
-Place .txt, .md, .pdf, .docx, .csv, .xlsx files in the common/ folder:
+### 4. Create Required Directories
+
 ```bash
-mkdir -p common
-# Copy your documents to common/
+mkdir -p common uploads faiss_index_openai faiss_index_ollama
 ```
 
-### 4️⃣ Run the document embedding script
+### 5. Add Your Documents
+
+Place your documents in the `common/` folder:
 ```bash
-poetry run python scripts/embed_doc.py
+# Copy your documents to the common folder
+cp your-documents/*.pdf common/
+cp your-documents/*.docx common/
 ```
-You should see: ✅ Vector store created with X chunks.
 
-### 5️⃣ Run the main agent app
+### 6. Run the Application
+
 ```bash
-poetry run python src/doc_analysis/main.py
+# Using Poetry
+poetry run streamlit run scripts/chat_rag.py
+
+# Using Python directly
+streamlit run scripts/chat_rag.py
 ```
 
-# Choose which agent to run:
-Choose an agent to run:
-1. Document Summarizer
-2. Test Case Generator
-3. API Test Generator
+## 🧠 Using the Application
 
-#Then input your query:
-Summarize the onboarding workflow for contractors
+1. **Select Models**: Choose embedding and retrieval models in the sidebar
+2. **Upload Documents**: Use the upload button to add documents to the system
+3. **Choose Agent Mode**:
+   - **Standard Chat**: Basic question-answering
+   - **Multi-Agent Analysis**: Comprehensive analysis with multiple perspectives
+   - **Learning Enhanced**: Adaptive responses based on previous interactions
+4. **Ask Questions**: Type your questions in the chat input
+5. **View Sources**: Expand the "Source Documents" section to see where information came from
+6. **Provide Feedback**: Rate responses with 👍 or 👎 to help improve the system
 
-The agent will:
-Embed the query
-Fetch top relevant document chunks
-Send to LLM with query
-Return final output
+## 🔌 Integrations
 
-For memory usage inspection
---------
-poetry run python scripts/inspect_logs.py
+### Jira Integration
+Connect to Jira to fetch and analyze issues:
+1. Enter your Jira URL, email, and API token
+2. Optionally specify a ticket number or fetch recent issues
+3. Click "Fetch Jira Issues"
 
-Will return the following along with logs (vector store & sqlite)
+### Freshworks Integration
+Connect to Freshworks to analyze support tickets:
+1. Enter your Freshworks domain and API key
+2. Optionally specify a ticket ID
+3. Click "Fetch Freshworks Tickets"
 
-"""
-✅ Total Chunks: 36
-🧠 Total Characters in Top 5 Chunks: 3362
+### Google Drive Integration
+Connect to Google Drive to analyze documents:
+1. Choose authentication method (API Key or OAuth)
+2. Select document retrieval method (Document ID, Folder ID, or Recent Documents)
+3. Click "Fetch Google Documents"
 
-💾 Storage Usage:
---------------------------------------------------
-📦 Chroma Vector Store: 123644.70 KB
-🗃️ SQLite Log DB: 8.00 KB
-"""
+## 🧹 Repository Maintenance
 
-5️⃣ Run the unittest 
--- poetry run python -m unittest.{{filename}} > this will test the function logic
+To clean up temporary files and prepare for deployment:
 
-💡 Notes
-All queries/responses are logged to SQLite via db_logger.py
+```bash
+# Run the cleanup script
+python scripts/cleanup_repo.py
+```
 
-📦 Tech Stack
-CrewAI
-LangChain
-ChromaDB
-OpenAI
-Unstructured
+## 📊 Advanced Features
 
----------------------------------------------------------------------------------------------------------
-# Interactive Document QA System (RAG + Feedback Loop)
+### Vector Database Migration
 
-This system enables intelligent question answering over your custom documents using Retrieval-Augmented Generation (RAG), with an integrated feedback loop for continuous improvement.
+If you need to migrate from FAISS to Qdrant:
 
----
+```bash
+python scripts/migrate_to_qdrant.py
+```
 
-## 1. 📄 Document Ingestion & Vectorstore Creation
+### Feedback Analysis
 
-**Purpose:**  
-To make your documents searchable and usable for Q&A.
+Analyze user feedback to improve the system:
 
-**How it works:**
-- Upload documents (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`) via the Streamlit app (`chat_rag.py`).
-- The app:
-  - Splits each document into chunks.
-  - Embeds them using **OpenAI embeddings**.
-  - Stores them in a **Chroma vectorstore** (`vectorstore_nomic`).
-- Original files can be deleted after processing — content is now indexed and searchable.
+```bash
+python scripts/analyze_feedback.py
+```
 
----
+## 🤝 Contributing
 
-## 2. ❓ Question Answering (RAG) via Streamlit
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-**Purpose:**  
-To answer user questions using both document retrieval and an LLM.
+## 📄 License
 
-**How it works:**
-- Users input questions in the Streamlit UI.
-- The app:
-  - Retrieves relevant chunks from the **Chroma vectorstore**.
-  - Sends the question and retrieved chunks to an **OpenAI LLM** via **LangChain**.
-- The LLM generates and returns an answer.
-- The response includes the **answer** and the **source documents** used.
-
----
-
-## 3. 📝 Feedback Collection
-
-**Purpose:**  
-To gather user feedback on answer quality for continuous improvement.
-
-**How it works:**
-- After each answer, users can give a 👍 or 👎 and optionally leave a comment.
-- Feedback is saved in `feedback_log.jsonl` as:
-  - Question
-  - Answer
-  - Sources
-  - Feedback type
-  - Comment (optional)
-
----
-
-## 4. 🛠️ Automated Feedback Analysis & Pipeline Improvement
-
-**Purpose:**  
-To analyze user feedback for improving system accuracy and reliability.
-
-**How it works:**
-- The `analyze_feedback.py` script:
-  - Parses `feedback_log.jsonl`.
-  - Finds most downvoted questions.
-  - Identifies source documents commonly associated with poor answers.
-  - Collects user comments on downvoted responses.
-  - Flags problematic documents (≥3 downvotes) in `sources_to_review.txt`.
-  - Creates `llm_finetune_data.jsonl` — a dataset for possible LLM fine-tuning.
-
----
-
-## 5. 🎯 (Optional) LLM Fine-Tuning
-
-**Purpose:**  
-To enhance LLM performance on your specific domain/questions.
-
-**How it works:**
-- The `llm_finetune_data.jsonl` file includes:
-  - Questions
-  - Answers
-  - Context (source chunks)
-  - Feedback metadata
-  - User comments
-- You can use this dataset to fine-tune an LLM, given access to a fine-tuning API or infrastructure.
-
----
-
-## 🚀 Tech Stack
-
-- **Streamlit** – User interface
-- **LangChain** – Orchestrates retrieval and LLM calls
-- **OpenAI API** – Embeddings and LLM
-- **ChromaDB** – Vector store for document chunks
-- **JSONL Logs** – Feedback storage and analysis
-
----
-
-## 📂 Project Files Overview
-
-| File | Description |
-|------|-------------|
-| `chat_rag.py` | Streamlit app for document upload and Q&A |
-| `analyze_feedback.py` | Analyzes feedback and prepares data for fine-tuning |
-| `feedback_log.jsonl` | Stores user feedback |
-| `llm_finetune_data.jsonl` | Dataset generated from feedback |
-| `sources_to_review.txt` | Problematic sources flagged for manual review |
-
----
-
-## ✅ Next Steps
-
-- Add support for multi-model selection (e.g., OpenAI, Ollama).
-- Visualize feedback analytics in the UI.
-- Add export/share options for chat and answers.
-- Integrate admin tools to manage sources and fine-tuning.
-
----
-
-Built with ❤️ for human-in-the-loop document intelligence.
+This project is licensed under the MIT License - see the LICENSE file for details.

@@ -13,7 +13,15 @@ import google.generativeai as genai
 
 # Add project root to path
 sys.path.append('/Users/krishnakumar/projects/AI/jarvis')
-from src.doc_analysis.tools.qdrant_store import store_documents, get_retriever
+
+# Try to import Qdrant, fall back to FAISS if not available
+try:
+    from src.doc_analysis.tools.qdrant_store import store_documents, get_retriever
+    VECTOR_DB = "qdrant"
+except ImportError:
+    from langchain_community.vectorstores import FAISS
+    VECTOR_DB = "faiss"
+    st.warning("⚠️ Qdrant not available, falling back to FAISS vector store")
 
 def get_gemini_api_key():
     return os.getenv("GEMINI_API_KEY")
@@ -24,15 +32,15 @@ def is_cloud():
 # --- Load environment variables ---
 load_dotenv()
 
-# --- Check for Qdrant configuration ---
-qdrant_api_key = os.getenv("QDRANT_API_KEY")
-qdrant_url = os.getenv("QDRANT_URL")
-qdrant_path = os.getenv("QDRANT_PATH")
-
-if not (qdrant_api_key and qdrant_url) and not qdrant_path:
-    st.warning("⚠️ Qdrant configuration missing. Please set QDRANT_API_KEY and QDRANT_URL for cloud deployment, or QDRANT_PATH for local deployment in your .env file.")
-    st.info("Using temporary in-memory storage for this session. Your data will not persist after closing the app.")
-    # Will create a local temporary directory for Qdrant
+# --- Check for Qdrant configuration if using Qdrant ---
+if VECTOR_DB == "qdrant":
+    qdrant_api_key = os.getenv("QDRANT_API_KEY")
+    qdrant_url = os.getenv("QDRANT_URL")
+    qdrant_path = os.getenv("QDRANT_PATH")
+    
+    if not (qdrant_api_key and qdrant_url) and not qdrant_path:
+        st.warning("⚠️ Qdrant configuration missing. Please set QDRANT_API_KEY and QDRANT_URL for cloud deployment, or QDRANT_PATH for local deployment in your .env file.")
+        st.info("Using temporary in-memory storage for this session. Your data will not persist after closing the app.")
 
 # --- UI Setup ---
 st.set_page_config(page_title="Freightify Bot", layout="wide")
@@ -58,11 +66,13 @@ if is_cloud() or embedding_model_source == "OpenAI" or retrieval_model_source ==
     embedding_model = OpenAIEmbeddings()
     embedding_label = "OpenAI"
     collection_name = "freightify_docs_openai"
+    faiss_index_path = "faiss_index_openai"
 else:
     from langchain_community.embeddings import OllamaEmbeddings
     embedding_model = OllamaEmbeddings(model="nomic-embed-text")
     embedding_label = "Ollama"
     collection_name = "freightify_docs_ollama"
+    faiss_index_path = "faiss_index_ollama"
 
 # --- LLM Selection ---
 if retrieval_model_source == "Ollama" and not is_cloud():
@@ -100,12 +110,26 @@ if uploaded_file:
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     chunks = splitter.split_documents(docs)
-    # Add to Qdrant vector store
+    # Add to vector store
     try:
-        vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
-        st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
+        if VECTOR_DB == "qdrant":
+            vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
+            st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
+        else:
+            # FAISS fallback
+            if os.path.exists(faiss_index_path):
+                vectordb = FAISS.load_local(
+                    faiss_index_path,
+                    embeddings=embedding_model,
+                    allow_dangerous_deserialization=True
+                )
+                vectordb.add_documents(chunks)
+            else:
+                vectordb = FAISS.from_documents(chunks, embedding_model)
+            vectordb.save_local(faiss_index_path)
+            st.success(f"Document uploaded and indexed with {embedding_label} embeddings in FAISS! You can now ask questions about it.")
     except Exception as e:
-        st.error(f"Error storing documents in Qdrant: {str(e)}")
+        st.error(f"Error storing documents: {str(e)}")
 
 # --- Retrieval Embedding Selection ---
 if retrieval_model_source == "Gemini":
@@ -116,42 +140,56 @@ else:
     retrieval_embedding = embedding_model
     retrieval_collection_name = collection_name
 
-# --- Get Qdrant retriever ---
+# --- Get retriever ---
 try:
-    # Import directly from langchain to ensure compatibility
-    from langchain_community.vectorstores import Qdrant
-    from src.doc_analysis.tools.qdrant_store import get_qdrant_client
-    
-    # Get Qdrant client
-    client = get_qdrant_client()
-    
-    # Create vector store directly to ensure correct parameters
-    try:
-        vector_store = Qdrant(
-            client=client,
-            collection_name=retrieval_collection_name,
-            embedding=retrieval_embedding  # Try with embedding (singular)
-        )
-    except Exception:
-        vector_store = Qdrant(
-            client=client,
-            collection_name=retrieval_collection_name,
-            embeddings=retrieval_embedding  # Try with embeddings (plural)
-        )
-    
-    # Create retriever
-    retriever = vector_store.as_retriever(search_kwargs={"k": 4})
-    
-    # Test retriever
-    try:
-        retriever.get_relevant_documents("test")
-        st.sidebar.success("✅ Connected to Qdrant successfully")
-    except Exception as inner_e:
-        st.sidebar.error(f"Error testing retriever: {str(inner_e)}")
-        retriever = None
+    if VECTOR_DB == "qdrant":
+        # Import directly from langchain to ensure compatibility
+        from langchain_community.vectorstores import Qdrant
+        from src.doc_analysis.tools.qdrant_store import get_qdrant_client
+        
+        # Get Qdrant client
+        client = get_qdrant_client()
+        
+        # Create vector store directly to ensure correct parameters
+        try:
+            vector_store = Qdrant(
+                client=client,
+                collection_name=retrieval_collection_name,
+                embedding=retrieval_embedding  # Try with embedding (singular)
+            )
+        except Exception:
+            vector_store = Qdrant(
+                client=client,
+                collection_name=retrieval_collection_name,
+                embeddings=retrieval_embedding  # Try with embeddings (plural)
+            )
+        
+        # Create retriever
+        retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+        
+        # Test retriever
+        try:
+            retriever.get_relevant_documents("test")
+            st.sidebar.success("✅ Connected to Qdrant successfully")
+        except Exception as inner_e:
+            st.sidebar.error(f"Error testing retriever: {str(inner_e)}")
+            retriever = None
+    else:
+        # FAISS fallback
+        if os.path.exists(faiss_index_path):
+            vectordb = FAISS.load_local(
+                faiss_index_path,
+                embeddings=retrieval_embedding,
+                allow_dangerous_deserialization=True
+            )
+            retriever = vectordb.as_retriever(search_kwargs={"k": 4})
+            st.sidebar.success("✅ Connected to FAISS successfully")
+        else:
+            st.sidebar.warning("No vector store found. Please upload documents first.")
+            retriever = None
         
 except Exception as e:
-    st.sidebar.error(f"Could not connect to Qdrant: {str(e)}")
+    st.sidebar.error(f"Could not connect to vector store: {str(e)}")
     retriever = None
 
 # --- Prompt Template ---
