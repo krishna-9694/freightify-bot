@@ -1,0 +1,48 @@
+version: '3'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  freightify-bot:
+    build: .
+    volumes:
+      - ./common:/app/common
+      - ./uploads:/app/uploads
+      - ./faiss_index_openai:/app/faiss_index_openai
+      - ./faiss_index_ollama:/app/faiss_index_ollama
+      - ./.env:/app/.env
+    environment:
+      - STREAMLIT_CLOUD=0
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    depends_on:
+      - freightify-bot
+
+volumes:
+  ollama_data:
+  caddy_data:
+  caddy_config:

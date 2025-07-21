@@ -155,6 +155,32 @@ The application is designed to work in cloud environments like Streamlit Cloud:
    - Set the required environment variables
    - Set the main file to `scripts/chat_rag.py`
 
+## 🐳 Docker Deployment
+
+For easy deployment in any environment, you can use Docker:
+
+```bash
+# Build and start the container
+docker-compose up -d
+
+# Access at http://localhost:8501
+```
+
+See [DOCKER.md](DOCKER.md) for detailed instructions.
+
+## 👥 Team Deployment
+
+To deploy with a proper URL for team access:
+
+```bash
+# Deploy with HTTPS and a custom domain
+docker-compose -f docker-compose.prod.yml up -d
+
+# Access at https://freightify-bot.yourdomain.com
+```
+
+See [TEAM_DEPLOYMENT.md](TEAM_DEPLOYMENT.md) for detailed instructions.
+
 ## 📊 Advanced Features
 
 ### Vector Database Migration
