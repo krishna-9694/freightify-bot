@@ -176,70 +176,6 @@ else:
     st.sidebar.warning("⚠️ Agentic features not available")
     st.sidebar.info("Using Standard Chat mode only")
 
-# --- File Upload (moved to right side) ---
-upload_col1, upload_col2 = st.columns([3, 1])
-with upload_col1:
-    st.subheader(f"Upload a document to analyse with {embedding_label}:")
-with upload_col2:
-    uploaded_file = st.file_uploader("Upload a document", type=["pdf", "docx", "txt", "md", "csv", "xlsx"], label_visibility="collapsed")
-if uploaded_file:
-    unique_name = f"{uuid.uuid4()}_{uploaded_file.name}"
-    temp_path = os.path.join("uploads", unique_name)
-    os.makedirs("uploads", exist_ok=True)
-    with open(temp_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    ext = uploaded_file.name.split(".")[-1].lower()
-    if ext == "pdf":
-        loader = PyPDFLoader(temp_path)
-    elif ext in ["docx", "docs"]:
-        loader = UnstructuredWordDocumentLoader(temp_path)
-    elif ext == "csv":
-        loader = CSVLoader(temp_path)
-    elif ext == "xlsx":
-        loader = UnstructuredExcelLoader(temp_path)
-    else:
-        loader = TextLoader(temp_path)
-    docs = loader.load()
-    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-    chunks = splitter.split_documents(docs)
-    # Add to vector store
-    try:
-        # In cloud environment, always use FAISS
-        if cloud_environment:
-            VECTOR_DB = "faiss"
-        
-        if VECTOR_DB == "qdrant" and not cloud_environment:
-            try:
-                vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
-                st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
-            except Exception as e:
-                st.error(f"Error storing documents in Qdrant: {str(e)}")
-                st.info("Falling back to FAISS vector store.")
-                # Fall back to FAISS
-                VECTOR_DB = "faiss"
-        
-        # FAISS fallback or primary option
-        if VECTOR_DB == "faiss":
-            # Create directory if it doesn't exist
-            os.makedirs(faiss_index_path, exist_ok=True)
-            
-            try:
-                if os.path.exists(os.path.join(faiss_index_path, "index.faiss")):
-                    vectordb = FAISS.load_local(
-                        faiss_index_path,
-                        embeddings=embedding_model,
-                        allow_dangerous_deserialization=True
-                    )
-                    vectordb.add_documents(chunks)
-                else:
-                    vectordb = FAISS.from_documents(chunks, embedding_model)
-                vectordb.save_local(faiss_index_path)
-                st.success(f"Document uploaded and indexed with {embedding_label} embeddings in FAISS! You can now ask questions about it.")
-            except Exception as e:
-                st.error(f"Error storing documents in FAISS: {str(e)}")
-    except Exception as e:
-        st.error(f"Error processing document: {str(e)}")
-
 # --- Retrieval Embedding Selection ---
 if retrieval_model_source == "Gemini":
     try:
@@ -256,6 +192,7 @@ else:
     retrieval_faiss_index_path = faiss_index_path
 
 # --- Get retriever ---
+retriever = None  # Initialize retriever variable
 try:
     # In cloud environment, always use FAISS for simplicity
     if cloud_environment:
@@ -325,6 +262,82 @@ try:
 except Exception as e:
     st.sidebar.error(f"Could not connect to any vector store: {str(e)}")
     retriever = None
+
+# --- File Upload (moved to right side) ---
+upload_col1, upload_col2 = st.columns([3, 1])
+with upload_col1:
+    st.subheader(f"Upload a document to analyse with {embedding_label}:")
+with upload_col2:
+    uploaded_file = st.file_uploader("Upload a document", type=["pdf", "docx", "txt", "md", "csv", "xlsx"], label_visibility="collapsed")
+if uploaded_file:
+    unique_name = f"{uuid.uuid4()}_{uploaded_file.name}"
+    temp_path = os.path.join("uploads", unique_name)
+    os.makedirs("uploads", exist_ok=True)
+    with open(temp_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    ext = uploaded_file.name.split(".")[-1].lower()
+    if ext == "pdf":
+        loader = PyPDFLoader(temp_path)
+    elif ext in ["docx", "docs"]:
+        loader = UnstructuredWordDocumentLoader(temp_path)
+    elif ext == "csv":
+        loader = CSVLoader(temp_path)
+    elif ext == "xlsx":
+        loader = UnstructuredExcelLoader(temp_path)
+    else:
+        loader = TextLoader(temp_path)
+    docs = loader.load()
+    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    chunks = splitter.split_documents(docs)
+    # Add to vector store
+    try:
+        # In cloud environment, always use FAISS
+        if cloud_environment:
+            VECTOR_DB = "faiss"
+        
+        if VECTOR_DB == "qdrant" and not cloud_environment:
+            try:
+                vectordb = store_documents(chunks, embedding_model, collection_name=collection_name)
+                # Update retriever
+                retriever = vectordb.as_retriever(search_kwargs={"k": 4})
+                st.success(f"Document uploaded and indexed with {embedding_label} embeddings in Qdrant! You can now ask questions about it.")
+                # Rerun to refresh the UI
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Error storing documents in Qdrant: {str(e)}")
+                st.info("Falling back to FAISS vector store.")
+                # Fall back to FAISS
+                VECTOR_DB = "faiss"
+        
+        # FAISS fallback or primary option
+        if VECTOR_DB == "faiss":
+            # Create directory if it doesn't exist
+            os.makedirs(faiss_index_path, exist_ok=True)
+            
+            try:
+                if os.path.exists(os.path.join(faiss_index_path, "index.faiss")):
+                    vectordb = FAISS.load_local(
+                        faiss_index_path,
+                        embeddings=embedding_model,
+                        allow_dangerous_deserialization=True
+                    )
+                    vectordb.add_documents(chunks)
+                else:
+                    vectordb = FAISS.from_documents(chunks, embedding_model)
+                
+                vectordb.save_local(faiss_index_path)
+                
+                # Update retriever
+                retriever = vectordb.as_retriever(search_kwargs={"k": 4})
+                
+                st.success(f"Document uploaded and indexed with {embedding_label} embeddings in FAISS! You can now ask questions about it.")
+                
+                # Rerun to refresh the UI
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Error storing documents in FAISS: {str(e)}")
+    except Exception as e:
+        st.error(f"Error processing document: {str(e)}")
 
 # --- Prompt Template ---
 from langchain.prompts import PromptTemplate
@@ -681,6 +694,7 @@ if jira_fetch and jira_url and jira_email and jira_token:
             docs = [Document(page_content=d["content"], metadata=d["metadata"]) for d in jira_docs]
             splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=50)
             chunks = splitter.split_documents(docs)
+            
             # Create directory if it doesn't exist
             os.makedirs(faiss_index_path, exist_ok=True)
             
@@ -696,11 +710,19 @@ if jira_fetch and jira_url and jira_email and jira_token:
                 upload_vectordb = FAISS.from_documents(chunks, embedding_model)
                 
             upload_vectordb.save_local(faiss_index_path)
+            
+            # Initialize retriever immediately after indexing
+            global retriever
+            retriever = upload_vectordb.as_retriever(search_kwargs={"k": 4})
+            
             if chunks:
                 success_msg = f"Fetched and indexed {len(jira_docs)} Jira issues!"
                 st.success(success_msg)
                 # Add system message to chat
-                st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})  
+                st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
+                
+                # Rerun the app to refresh the UI with the new retriever
+                st.experimental_rerun()
             else:
                 st.warning("No content to index from Jira issues (issues may be empty or too short).")
         except Exception as e:
@@ -725,7 +747,10 @@ if freshworks_fetch and freshworks_domain and freshworks_api_key:
             if "✅" in result:
                 st.success(success_msg)
                 # Add system message to chat
-                st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})  
+                st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
+                
+                # Rerun the app to refresh the UI
+                st.experimental_rerun()
             else:
                 st.warning(result)
         except Exception as e:
@@ -755,6 +780,9 @@ if google_fetch:
                     st.success(success_msg)
                     # Add system message to chat
                     st.session_state.messages.append({"role": "assistant", "content": f"📄 {success_msg}"})
+                    
+                    # Rerun the app to refresh the UI
+                    st.experimental_rerun()
                 else:
                     st.warning(result)
             else:
