@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# Create SSL directory if it doesn't exist
+mkdir -p ssl
+
+# Generate self-signed SSL certificate if it doesn't exist
+if [ ! -f ssl/cert.pem ] || [ ! -f ssl/key.pem ]; then
+  echo "Generating self-signed SSL certificate..."
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout ssl/key.pem -out ssl/cert.pem \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+  echo "SSL certificate generated."
+fi
+
 # Stop and remove existing containers
 echo "Stopping existing containers..."
 docker-compose -f docker-compose.local.cpu.yml down
@@ -14,7 +26,7 @@ if [ ! -f .env ]; then
 fi
 
 # Start the application
-echo "Starting Freightify Bot..."
+echo "Starting Freightify Bot with HTTPS..."
 docker-compose -f docker-compose.local.cpu.yml up -d --build
 
 # Get the IP address
@@ -31,7 +43,9 @@ fi
 
 echo ""
 echo "Freightify Bot is starting up!"
-echo "Access it at: http://$IP/freightify/"
+echo "Access it at: https://$IP/freightify/"
+echo ""
+echo "NOTE: Since we're using a self-signed certificate, you'll need to accept the security warning in your browser."
 echo ""
 echo "To check logs: docker-compose -f docker-compose.local.cpu.yml logs -f"
 echo "To stop: docker-compose -f docker-compose.local.cpu.yml down"

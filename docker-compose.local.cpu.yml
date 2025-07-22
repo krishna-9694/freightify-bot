@@ -9,16 +9,18 @@ services:
   freightify-bot:
     build: .
     volumes:
-      - ./common:/app/common:delegated
-      - ./uploads:/app/uploads:delegated
-      - ./faiss_index_openai:/app/faiss_index_openai:delegated
-      - ./faiss_index_ollama:/app/faiss_index_ollama:delegated
+      - common_data:/app/common
+      - uploads_data:/app/uploads
+      - faiss_openai_data:/app/faiss_index_openai
+      - faiss_ollama_data:/app/faiss_index_ollama
       - ./.env:/app/.env:ro
     environment:
       - STREAMLIT_CLOUD=0
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_HOST=ollama
       - STREAMLIT_SERVER_BASE_URL_PATH=/freightify
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
     depends_on:
       - ollama
     restart: unless-stopped
@@ -27,11 +29,17 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./ssl:/etc/nginx/ssl
     restart: unless-stopped
     depends_on:
       - freightify-bot
 
 volumes:
   ollama_data:
+  common_data:
+  uploads_data:
+  faiss_openai_data:
+  faiss_ollama_data:
