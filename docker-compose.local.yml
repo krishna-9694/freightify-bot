@@ -26,24 +26,20 @@ services:
       - STREAMLIT_CLOUD=0
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_HOST=ollama
+      - STREAMLIT_SERVER_BASE_URL_PATH=/freightify
     depends_on:
       - ollama
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2
+  nginx:
+    image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
     restart: unless-stopped
     depends_on:
       - freightify-bot
 
 volumes:
   ollama_data:
-  caddy_data:
-  caddy_config:

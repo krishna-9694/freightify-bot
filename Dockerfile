@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# We'll use the Ollama service instead of installing it in this container
+# The container will connect to the Ollama service via HTTP
 
 # Copy requirements first for better caching
 COPY requirements.txt .

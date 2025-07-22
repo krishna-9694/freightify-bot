@@ -28,7 +28,8 @@ services:
       - ./.env:/app/.env
     environment:
       - STREAMLIT_CLOUD=0  # Allow Ollama usage
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=ollama
     depends_on:
       - ollama
     restart: unless-stopped

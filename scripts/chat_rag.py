@@ -111,7 +111,9 @@ if cloud_environment or embedding_model_source == "OpenAI" or retrieval_model_so
 else:
     try:
         from langchain_community.embeddings import OllamaEmbeddings
-        embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+        # Get Ollama host from environment variables
+        ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        embedding_model = OllamaEmbeddings(model="nomic-embed-text", base_url=ollama_base_url)
         embedding_label = "Ollama"
         collection_name = "freightify_docs_ollama"
         faiss_index_path = "faiss_index_ollama"
@@ -131,7 +133,9 @@ else:
 if retrieval_model_source == "Ollama" and not cloud_environment:
     try:
         from langchain_community.llms import Ollama
-        llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]))
+        # Get Ollama host from environment variables
+        ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        llm = Ollama(model=st.sidebar.selectbox("Ollama Model", ["llama3", "mistral", "phi3"]), base_url=ollama_base_url)
     except Exception as e:
         st.error(f"Error initializing Ollama LLM: {str(e)}. Falling back to OpenAI.")
         retrieval_model_source = "OpenAI"
