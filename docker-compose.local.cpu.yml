@@ -1,0 +1,39 @@
+version: '3'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    # No GPU configuration
+
+  freightify-bot:
+    build: .
+    volumes:
+      - ./common:/app/common
+      - ./uploads:/app/uploads
+      - ./faiss_index_openai:/app/faiss_index_openai
+      - ./faiss_index_ollama:/app/faiss_index_ollama
+      - ./.env:/app/.env
+    environment:
+      - STREAMLIT_CLOUD=0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=ollama
+      - STREAMLIT_SERVER_BASE_URL_PATH=/freightify
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    restart: unless-stopped
+    depends_on:
+      - freightify-bot
+
+volumes:
+  ollama_data:

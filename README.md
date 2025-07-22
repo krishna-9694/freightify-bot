@@ -168,9 +168,24 @@ docker-compose up -d
 
 See [DOCKER.md](DOCKER.md) for detailed instructions.
 
-## 👥 Team Deployment
+## 👥 Team Access
 
-To deploy with a proper URL for team access:
+### Local Network Access
+
+To share with your team on the local network:
+
+```bash
+# Deploy locally with a shareable URL (CPU-only)
+docker-compose -f docker-compose.local.cpu.yml up -d
+
+# Access at http://YOUR_IP_ADDRESS/freightify
+```
+
+See [LOCAL_SETUP.md](LOCAL_SETUP.md) for detailed instructions.
+
+### Public Deployment
+
+To deploy with a public URL and HTTPS:
 
 ```bash
 # Deploy with HTTPS and a custom domain
